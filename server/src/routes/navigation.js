@@ -65,6 +65,7 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
     // Return combined result
     res.json({
       success: true,
+      transcript: geminiResult.transcript || null,
       extractedStops: geminiResult.stops,
       route: routeData,
       warnings: routeData.warnings || []
