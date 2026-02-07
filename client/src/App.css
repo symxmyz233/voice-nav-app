@@ -10,9 +10,10 @@ body {
 }
 
 .app {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .app-header {
@@ -37,6 +38,7 @@ body {
   flex: 1;
   padding: 20px;
   gap: 20px;
+  min-height: 0;
 }
 
 .control-panel {
@@ -44,11 +46,13 @@ body {
   display: flex;
   flex-direction: column;
   gap: 15px;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .map-container {
   flex: 1;
-  min-height: 500px;
+  min-height: 0;
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -418,6 +422,6 @@ body {
   }
 
   .map-container {
-    min-height: 400px;
+    min-height: 300px;
   }
 }

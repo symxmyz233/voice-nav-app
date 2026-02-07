@@ -1,10 +1,9 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { GoogleMap, Marker, Polyline } from '@react-google-maps/api';
 
 const mapContainerStyle = {
   width: '100%',
-  height: '100%',
-  minHeight: '500px'
+  height: '100%'
 };
 
 const defaultCenter = {
@@ -29,6 +28,7 @@ const polylineOptions = {
 function MapDisplay({ route }) {
   const [map, setMap] = useState(null);
   const [decodedPath, setDecodedPath] = useState([]);
+  const polylineRef = useRef(null);
 
   const onLoad = useCallback((map) => {
     setMap(map);
@@ -47,6 +47,11 @@ function MapDisplay({ route }) {
       setDecodedPath(decoded);
     } else {
       setDecodedPath([]);
+      // Directly remove the polyline from the map via native API
+      if (polylineRef.current) {
+        polylineRef.current.setMap(null);
+        polylineRef.current = null;
+      }
     }
   }, [route]);
 
@@ -90,7 +95,7 @@ function MapDisplay({ route }) {
   return (
     <GoogleMap
       mapContainerStyle={mapContainerStyle}
-      center={route?.stops?.[0] || defaultCenter}
+      center={defaultCenter}
       zoom={10}
       onLoad={onLoad}
       onUnmount={onUnmount}
@@ -98,11 +103,15 @@ function MapDisplay({ route }) {
     >
       {/* Render route polyline */}
       {decodedPath.length > 0 && (
-        <Polyline path={decodedPath} options={polylineOptions} />
+        <Polyline
+          path={decodedPath}
+          options={polylineOptions}
+          onLoad={(polyline) => { polylineRef.current = polyline; }}
+        />
       )}
 
-      {/* Render markers for each stop */}
-      {Array.isArray(route?.stops) && route.stops.map((stop, index) => (
+      {/* Render markers for each stop — wait for map to be ready */}
+      {map && Array.isArray(route?.stops) && route.stops.map((stop, index) => (
         <Marker
           key={`${stop.name}-${index}`}
           position={{ lat: stop.lat, lng: stop.lng }}

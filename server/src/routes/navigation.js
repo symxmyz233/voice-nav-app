@@ -9,6 +9,7 @@ import { getMultiStopRoute } from '../services/maps.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const VOICE_BUFFER_DIR = path.resolve(__dirname, '../../voice_buffer');
+const ROUTE_CACHE_PATH = path.resolve(__dirname, '../../route_cache.json');
 
 const router = express.Router();
 
@@ -60,15 +61,17 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
       });
     }
 
-    // Save audio to voice_buffer/ named by waypoints
-    fs.mkdirSync(VOICE_BUFFER_DIR, { recursive: true });
-    const waypoints = geminiResult.stops.map(s => s.original.replace(/[\/\\:*?"<>|]/g, '_')).join(', ');
-    const bufferFilename = `[${waypoints}].mp3`;
-    const bufferPath = path.join(VOICE_BUFFER_DIR, bufferFilename);
-    fs.writeFile(bufferPath, req.file.buffer, (err) => {
-      if (err) console.error('Failed to save voice buffer:', err);
-      else console.log('Saved voice buffer:', bufferPath);
-    });
+    // Save audio to voice_buffer/ only if it's a new recording (not from buffer)
+    if (req.body.from_buffer !== 'true') {
+      fs.mkdirSync(VOICE_BUFFER_DIR, { recursive: true });
+      const waypoints = geminiResult.stops.map(s => s.original.replace(/[\/\\:*?"<>|]/g, '_')).join(', ');
+      const bufferFilename = `[${waypoints}].mp3`;
+      const bufferPath = path.join(VOICE_BUFFER_DIR, bufferFilename);
+      fs.writeFile(bufferPath, req.file.buffer, (err) => {
+        if (err) console.error('Failed to save voice buffer:', err);
+        else console.log('Saved voice buffer:', bufferPath);
+      });
+    }
 
     // Log extracted stops with their types
     console.log('Extracted stops:');
@@ -80,14 +83,21 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
     console.log('Getting route from Google Maps...');
     const routeData = await getMultiStopRoute(geminiResult.stops);
 
-    // Return combined result
-    res.json({
+    const result = {
       success: true,
       transcript: geminiResult.transcript || null,
       extractedStops: geminiResult.stops,
       route: routeData,
       warnings: routeData.warnings || []
+    };
+
+    // Cache the route data to disk
+    fs.writeFile(ROUTE_CACHE_PATH, JSON.stringify(result.route), (err) => {
+      if (err) console.error('Failed to cache route:', err);
+      else console.log('Cached route to', ROUTE_CACHE_PATH);
     });
+
+    res.json(result);
   } catch (error) {
     console.error('Error processing voice:', error);
     res.status(500).json({
@@ -165,6 +175,23 @@ router.get('/voice-buffers/:filename', (req, res) => {
   } catch (error) {
     console.error('Error serving voice buffer:', error);
     res.status(500).json({ error: 'Failed to serve voice buffer' });
+  }
+});
+
+/**
+ * GET /api/last-route
+ * Return the most recently generated route from cache
+ */
+router.get('/last-route', (req, res) => {
+  try {
+    if (!fs.existsSync(ROUTE_CACHE_PATH)) {
+      return res.json({ success: true, route: null });
+    }
+    const data = fs.readFileSync(ROUTE_CACHE_PATH, 'utf-8');
+    res.json({ success: true, route: JSON.parse(data) });
+  } catch (error) {
+    console.error('Error reading route cache:', error);
+    res.json({ success: true, route: null });
   }
 });
 

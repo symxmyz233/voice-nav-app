@@ -31,6 +31,7 @@ function VoiceBufferList({ onResult, onError, onLoadingChange }) {
 
       const formData = new FormData();
       formData.append('audio', audioBlob, filename);
+      formData.append('from_buffer', 'true');
 
       const response = await fetch('/api/process-voice', {
         method: 'POST',

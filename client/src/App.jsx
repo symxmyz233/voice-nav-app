@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useJsApiLoader } from '@react-google-maps/api';
 import VoiceRecorder from './components/VoiceRecorder';
 import MapDisplay from './components/MapDisplay';
@@ -13,6 +13,15 @@ function App() {
   const [routeData, setRouteData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetch('/api/last-route')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.route) setRouteData(data.route);
+      })
+      .catch(() => {});
+  }, []);
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: GOOGLE_MAPS_API_KEY,
@@ -31,6 +40,10 @@ function App() {
 
   const handleLoadingChange = useCallback((isLoading) => {
     setLoading(isLoading);
+    if (isLoading) {
+      setRouteData(null);
+      setError(null);
+    }
   }, []);
 
   return (
