@@ -9,9 +9,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api")
@@ -68,6 +73,21 @@ public class NavigationController {
                                 .build());
             }
 
+            // Save audio to voice_buffer/ named by waypoints
+            try {
+                Path voiceBufferDir = Paths.get("voice_buffer");
+                Files.createDirectories(voiceBufferDir);
+                String waypoints = geminiResult.getStops().stream()
+                        .map(s -> s.getOriginal().replaceAll("[/\\\\:*?\"<>|]", "_"))
+                        .collect(Collectors.joining(", "));
+                String bufferFilename = "[" + waypoints + "].mp3";
+                Path bufferPath = voiceBufferDir.resolve(bufferFilename);
+                Files.write(bufferPath, audioFile.getBytes());
+                log.info("Saved voice buffer: {}", bufferPath);
+            } catch (IOException e) {
+                log.error("Failed to save voice buffer", e);
+            }
+
             // Log extracted stops
             log.info("Extracted stops:");
             for (int i = 0; i < geminiResult.getStops().size(); i++) {
@@ -88,6 +108,7 @@ public class NavigationController {
 
             return ResponseEntity.ok(NavigationResponse.builder()
                     .success(true)
+                    .transcript(geminiResult.getTranscript())
                     .extractedStops(geminiResult.getStops())
                     .route(routeData)
                     .warnings(allWarnings)

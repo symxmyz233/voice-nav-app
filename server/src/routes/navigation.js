@@ -1,7 +1,14 @@
 import express from 'express';
 import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { extractStopsFromAudio } from '../services/gemini.js';
 import { getMultiStopRoute } from '../services/maps.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const VOICE_BUFFER_DIR = path.resolve(__dirname, '../../voice_buffer');
 
 const router = express.Router();
 
@@ -31,6 +38,7 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
       size: req.file.size,
       originalname: req.file.originalname
     });
+
     console.log('Processing with Gemini...');
 
     // Step 1: Extract stops from audio using Gemini
@@ -51,6 +59,16 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
         error: geminiResult.error || 'No locations found in audio'
       });
     }
+
+    // Save audio to voice_buffer/ named by waypoints
+    fs.mkdirSync(VOICE_BUFFER_DIR, { recursive: true });
+    const waypoints = geminiResult.stops.map(s => s.original.replace(/[\/\\:*?"<>|]/g, '_')).join(', ');
+    const bufferFilename = `[${waypoints}].mp3`;
+    const bufferPath = path.join(VOICE_BUFFER_DIR, bufferFilename);
+    fs.writeFile(bufferPath, req.file.buffer, (err) => {
+      if (err) console.error('Failed to save voice buffer:', err);
+      else console.log('Saved voice buffer:', bufferPath);
+    });
 
     // Log extracted stops with their types
     console.log('Extracted stops:');
