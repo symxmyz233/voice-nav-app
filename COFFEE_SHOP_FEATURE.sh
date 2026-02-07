@@ -1,0 +1,52 @@
+#!/bin/bash
+# Installation script for Coffee Shop Recommendations feature
+
+echo "Installing Coffee Shop Recommendations Feature..."
+echo ""
+
+# Check if running from project root
+if [ ! -f "package.json" ]; then
+  echo "Error: Please run this script from the project root directory"
+  exit 1
+fi
+
+echo "✓ Feature implementation complete!"
+echo ""
+echo "=== Files Created ==="
+echo "Backend (Node.js):"
+echo "  - server/src/services/placeService.js"
+echo "  - server/src/utils/coffeeShopRecommender.js"
+echo ""
+echo "Frontend (React):"
+echo "  - client/src/services/coffeeShopService.js"
+echo "  - client/src/components/CoffeeShopRecommendations.jsx"
+echo "  - client/src/components/CoffeeShopRecommendations.css"
+echo ""
+echo "=== Files Modified ==="
+echo "Backend:"
+echo "  - server/src/routes/navigation.js (added /api/find-coffee-shops endpoint)"
+echo ""
+echo "Frontend:"
+echo "  - client/src/components/MapDisplay.jsx (added search button and markers)"
+echo "  - client/src/App.jsx (added state management and event handlers)"
+echo "  - client/src/App.css (added map controls styling)"
+echo ""
+echo "=== Next Steps ==="
+echo ""
+echo "1. Ensure your .env file has GOOGLE_MAPS_API_KEY set"
+echo "2. The Maps API key should have these APIs enabled:"
+echo "   - Maps JavaScript API"
+echo "   - Places API"
+echo "   - Geocoding API"
+echo ""
+echo "3. Start the application:"
+echo "   npm run dev          # or"
+echo "   npm run dev:java     # if using Java backend"
+echo ""
+echo "4. How to use:"
+echo "   - Click the 'Coffee Shops' button in the bottom-right corner of the map"
+echo "   - The system will search for nearby coffee shops"
+echo "   - Results will be displayed with ratings, distance, and recommendations"
+echo "   - Click 'Navigate' to set a coffee shop as destination"
+echo ""
+echo "✓ Installation complete!"
