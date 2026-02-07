@@ -1,0 +1,12 @@
+name: voice-nav-app
+channels:
+  - defaults
+dependencies:
+  - ca-certificates=2025.7.15=hecd8cb5_0
+  - icu=73.1=hcec6c5f_0
+  - libcxx=19.1.7=haebbb44_3
+  - libuv=1.48.0=h46256e1_0
+  - nodejs=20.17.0=h406526a_0
+  - openssl=3.0.17=hee2dfae_0
+  - zlib=1.2.13=h4b97444_1
+prefix: /Users/wensenmao/anaconda3/envs/voice-nav-app

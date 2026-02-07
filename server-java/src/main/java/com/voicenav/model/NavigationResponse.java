@@ -13,6 +13,7 @@ import java.util.List;
 @AllArgsConstructor
 public class NavigationResponse {
     private boolean success;
+    private String transcript;
     private List<StopInfo> extractedStops;
     private RouteResponse route;
     private List<String> warnings;

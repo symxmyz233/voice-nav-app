@@ -1,9 +1,10 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useJsApiLoader } from '@react-google-maps/api';
 import VoiceRecorder from './components/VoiceRecorder';
 import MapDisplay from './components/MapDisplay';
 import RouteInfo from './components/RouteInfo';
 import CoffeeShopRecommendations from './components/CoffeeShopRecommendations';
+import VoiceBufferList from './components/VoiceBufferList';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
@@ -14,6 +15,15 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [coffeeShops, setCoffeeShops] = useState([]);
+
+  useEffect(() => {
+    fetch('/api/last-route')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.route) setRouteData(data.route);
+      })
+      .catch(() => {});
+  }, []);
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: GOOGLE_MAPS_API_KEY,
@@ -32,6 +42,10 @@ function App() {
 
   const handleLoadingChange = useCallback((isLoading) => {
     setLoading(isLoading);
+    if (isLoading) {
+      setRouteData(null);
+      setError(null);
+    }
   }, []);
 
   const handleCoffeeShopsFound = useCallback((shops) => {
@@ -78,6 +92,11 @@ function App() {
               onShopSelect={handleCoffeeShopSelect}
             />
           )}
+          <VoiceBufferList
+            onResult={handleVoiceResult}
+            onError={handleError}
+            onLoadingChange={handleLoadingChange}
+          />
         </div>
 
         <div className="map-container">

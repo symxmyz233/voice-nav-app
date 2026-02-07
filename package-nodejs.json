@@ -1,5 +1,5 @@
 {
-   "name": "voice-nav-app",
+  "name": "voice-nav-app",
   "version": "1.0.0",
   "description": "Voice-Activated Multi-Stop Navigation Route Planner",
   "private": true,
@@ -10,9 +10,7 @@
   "scripts": {
     "client": "npm run dev --workspace=client",
     "server": "npm run dev --workspace=server",
-    "server:java": "cd server-java && mvn spring-boot:run",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "dev:java": "concurrently \"npm run server:java\" \"npm run client\"", 
     "install:all": "npm install"
   },
   "devDependencies": {

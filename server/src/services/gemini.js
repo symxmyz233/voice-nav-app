@@ -21,22 +21,23 @@ Extract all locations/stops mentioned and classify each one.
 
 Return ONLY a valid JSON object in this exact format, with no additional text:
 {
+  "transcript": "the full transcription of what the user said",
   "stops": [
     {
-      "original": "exactly what user said",
+      "original": "exactly what the user said for this stop",
       "type": "full_address|landmark|partial|relative",
       "parsed": {
-        "streetNumber": "40" or null,
-        "streetName": "Wickley Ave" or null,
-        "city": "Piscataway" or null,
-        "state": "New Jersey" or null,
-        "country": "USA" or null,
-        "postalCode": null,
-        "landmark": "Time Square" or null,
-        "businessName": null
+        "streetNumber": "<number> or null",
+        "streetName": "<street> or null",
+        "city": "<city> or null",
+        "state": "<state> or null",
+        "country": "<country> or null",
+        "postalCode": "<zip> or null",
+        "landmark": "<landmark name> or null",
+        "businessName": "<business name> or null"
       },
       "searchQuery": "optimized string for Google Maps geocoding",
-      "confidence": 0.95
+      "confidence": 0.0 to 1.0
     }
   ]
 }
