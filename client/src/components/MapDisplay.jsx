@@ -8,8 +8,8 @@ const mapContainerStyle = {
 };
 
 const defaultCenter = {
-  lat: 37.7749,
-  lng: -122.4194
+  lat: 40.7128,
+  lng: -74.0060
 };
 
 const mapOptions = {
@@ -33,6 +33,14 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const polylineRef = useRef(null);
+  const initialCenterRef = useRef(null);
+
+  // Compute initial center only once: use the first route stop if available, otherwise default
+  if (!initialCenterRef.current) {
+    initialCenterRef.current = route?.stops?.[0]
+      ? { lat: route.stops[0].lat, lng: route.stops[0].lng }
+      : defaultCenter;
+  }
 
   const onLoad = useCallback((map) => {
     setMap(map);
@@ -206,7 +214,7 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
     <div className="map-display-container">
       <GoogleMap
         mapContainerStyle={mapContainerStyle}
-        center={route?.stops?.[0] || defaultCenter}
+        center={initialCenterRef.current}
         zoom={10}
         onLoad={onLoad}
         onUnmount={onUnmount}
@@ -275,39 +283,6 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
         {error && <div className="map-error">{error}</div>}
       </div>
     </div>
-    <GoogleMap
-      mapContainerStyle={mapContainerStyle}
-      center={defaultCenter}
-      zoom={10}
-      onLoad={onLoad}
-      onUnmount={onUnmount}
-      options={mapOptions}
-    >
-      {/* Render route polyline */}
-      {decodedPath.length > 0 && (
-        <Polyline
-          path={decodedPath}
-          options={polylineOptions}
-          onLoad={(polyline) => { polylineRef.current = polyline; }}
-        />
-      )}
-
-      {/* Render markers for each stop — wait for map to be ready */}
-      {map && Array.isArray(route?.stops) && route.stops.map((stop, index) => (
-        <Marker
-          key={`${stop.name}-${index}`}
-          position={{ lat: stop.lat, lng: stop.lng }}
-          label={{
-            text: getMarkerLabel(index, route.stops.length),
-            color: '#ffffff',
-            fontWeight: 'bold',
-            fontSize: '12px'
-          }}
-          icon={getMarkerIcon(index, route.stops.length)}
-          title={stop.formattedAddress || stop.name}
-        />
-      ))}
-    </GoogleMap>
   );
 }
 export default MapDisplay;

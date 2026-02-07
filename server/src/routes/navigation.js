@@ -181,6 +181,27 @@ router.get('/voice-buffers/:filename', (req, res) => {
 });
 
 /**
+ * DELETE /api/voice-buffers/:filename
+ * Delete a specific voice buffer audio file
+ */
+router.delete('/voice-buffers/:filename', (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename);
+    const filePath = path.join(VOICE_BUFFER_DIR, filename);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    fs.unlinkSync(filePath);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting voice buffer:', error);
+    res.status(500).json({ error: 'Failed to delete voice buffer' });
+  }
+});
+
+/**
  * GET /api/last-route
  * Return the most recently generated route from cache
  */
