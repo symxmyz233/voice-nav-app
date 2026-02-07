@@ -1,5 +1,5 @@
 {
-  "name": "voice-nav-app",
+   "name": "voice-nav-app",
   "version": "1.0.0",
   "description": "Voice-Activated Multi-Stop Navigation Route Planner",
   "private": true,

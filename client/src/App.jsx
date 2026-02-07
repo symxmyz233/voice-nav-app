@@ -3,6 +3,7 @@ import { useJsApiLoader } from '@react-google-maps/api';
 import VoiceRecorder from './components/VoiceRecorder';
 import MapDisplay from './components/MapDisplay';
 import RouteInfo from './components/RouteInfo';
+import CoffeeShopRecommendations from './components/CoffeeShopRecommendations';
 import VoiceBufferList from './components/VoiceBufferList';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
@@ -13,6 +14,7 @@ function App() {
   const [routeData, setRouteData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [coffeeShops, setCoffeeShops] = useState([]);
 
   useEffect(() => {
     fetch('/api/last-route')
@@ -46,6 +48,15 @@ function App() {
     }
   }, []);
 
+  const handleCoffeeShopsFound = useCallback((shops) => {
+    setCoffeeShops(shops);
+  }, []);
+
+  const handleCoffeeShopSelect = useCallback((shop) => {
+    console.log('Selected coffee shop:', shop);
+    // TODO: Add navigation to coffee shop as destination
+  }, []);
+
   return (
     <div className="app">
       <header className="app-header">
@@ -75,6 +86,12 @@ function App() {
 
           {routeData && <RouteInfo route={routeData} />}
 
+          {coffeeShops.length > 0 && (
+            <CoffeeShopRecommendations
+              shops={coffeeShops}
+              onShopSelect={handleCoffeeShopSelect}
+            />
+          )}
           <VoiceBufferList
             onResult={handleVoiceResult}
             onError={handleError}
@@ -93,7 +110,12 @@ function App() {
               <p>Loading map...</p>
             </div>
           )}
-          {isLoaded && <MapDisplay route={routeData} />}
+          {isLoaded && (
+            <MapDisplay
+              route={routeData}
+              onCoffeeShopsFound={handleCoffeeShopsFound}
+            />
+          )}
         </div>
       </main>
     </div>
