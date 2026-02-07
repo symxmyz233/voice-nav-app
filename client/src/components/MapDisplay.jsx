@@ -102,7 +102,7 @@ function MapDisplay({ route }) {
       )}
 
       {/* Render markers for each stop */}
-      {route?.stops?.map((stop, index) => (
+      {Array.isArray(route?.stops) && route.stops.map((stop, index) => (
         <Marker
           key={`${stop.name}-${index}`}
           position={{ lat: stop.lat, lng: stop.lng }}

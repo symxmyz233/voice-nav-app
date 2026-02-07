@@ -61,8 +61,8 @@ function RouteInfo({ route }) {
 
       {/* Stops */}
       <div className="stops-list">
-        <h3>Stops ({route.stops?.length || 0})</h3>
-        {route.stops?.map((stop, index) => (
+        <h3>Stops ({Array.isArray(route.stops) ? route.stops.length : 0})</h3>
+        {Array.isArray(route.stops) && route.stops.map((stop, index) => (
           <div key={`stop-${index}`} className="stop-item">
             <div className={`stop-marker ${getStopType(index, route.stops.length)}`}>
               {String.fromCharCode(65 + index)}
@@ -99,7 +99,7 @@ function RouteInfo({ route }) {
       </div>
 
       {/* Legs */}
-      {route.legs && route.legs.length > 0 && (
+      {Array.isArray(route.legs) && route.legs.length > 0 && (
         <div className="legs-list">
           <h3>Route Legs</h3>
           {route.legs.map((leg, index) => (

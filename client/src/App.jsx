@@ -3,6 +3,7 @@ import { useJsApiLoader } from '@react-google-maps/api';
 import VoiceRecorder from './components/VoiceRecorder';
 import MapDisplay from './components/MapDisplay';
 import RouteInfo from './components/RouteInfo';
+import VoiceBufferList from './components/VoiceBufferList';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
@@ -60,6 +61,12 @@ function App() {
           )}
 
           {routeData && <RouteInfo route={routeData} />}
+
+          <VoiceBufferList
+            onResult={handleVoiceResult}
+            onError={handleError}
+            onLoadingChange={handleLoadingChange}
+          />
         </div>
 
         <div className="map-container">

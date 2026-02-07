@@ -10,7 +10,9 @@
   "scripts": {
     "client": "npm run dev --workspace=client",
     "server": "npm run dev --workspace=server",
+    "server:java": "cd server-java && mvn spring-boot:run",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "dev:java": "concurrently \"npm run server:java\" \"npm run client\"", 
     "install:all": "npm install"
   },
   "devDependencies": {

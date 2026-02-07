@@ -9,6 +9,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @RestController
 @RequestMapping("/api")
@@ -75,7 +79,7 @@ public class NavigationController {
 
             // Save audio to voice_buffer/ named by waypoints
             try {
-                Path voiceBufferDir = Paths.get("voice_buffer");
+                Path voiceBufferDir = Paths.get("../voice_buffer");
                 Files.createDirectories(voiceBufferDir);
                 String waypoints = geminiResult.getStops().stream()
                         .map(s -> s.getOriginal().replaceAll("[/\\\\:*?\"<>|]", "_"))
@@ -164,6 +168,70 @@ public class NavigationController {
                             .success(false)
                             .error(e.getMessage() != null ? e.getMessage() : "Failed to get route")
                             .build());
+        }
+    }
+
+    /**
+     * List all saved voice buffer files
+     */
+    @GetMapping("/voice-buffers")
+    public ResponseEntity<Map<String, Object>> listVoiceBuffers() {
+        try {
+            Path voiceBufferDir = Paths.get("../voice_buffer");
+            if (!Files.exists(voiceBufferDir)) {
+                return ResponseEntity.ok(Map.of("success", true, "buffers", List.of()));
+            }
+
+            List<Map<String, Object>> buffers;
+            try (Stream<Path> paths = Files.list(voiceBufferDir)) {
+                buffers = paths
+                        .filter(Files::isRegularFile)
+                        .map(p -> {
+                            try {
+                                return Map.<String, Object>of(
+                                        "filename", p.getFileName().toString(),
+                                        "size", Files.size(p)
+                                );
+                            } catch (IOException e) {
+                                return Map.<String, Object>of(
+                                        "filename", p.getFileName().toString(),
+                                        "size", 0
+                                );
+                            }
+                        })
+                        .toList();
+            }
+
+            return ResponseEntity.ok(Map.of("success", true, "buffers", buffers));
+        } catch (IOException e) {
+            log.error("Error listing voice buffers", e);
+            return ResponseEntity.internalServerError().body(
+                    Map.of("success", false, "error", "Failed to list voice buffers"));
+        }
+    }
+
+    /**
+     * Serve a specific voice buffer audio file
+     */
+    @GetMapping("/voice-buffers/{filename}")
+    public ResponseEntity<byte[]> getVoiceBuffer(@PathVariable String filename) {
+        try {
+            Path filePath = Paths.get("../voice_buffer").resolve(filename).normalize();
+            if (!filePath.getParent().equals(Paths.get("../voice_buffer").normalize())) {
+                return ResponseEntity.badRequest().build();
+            }
+
+            if (!Files.exists(filePath)) {
+                return ResponseEntity.notFound().build();
+            }
+
+            byte[] audioBytes = Files.readAllBytes(filePath);
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_TYPE, "audio/mpeg")
+                    .body(audioBytes);
+        } catch (IOException e) {
+            log.error("Error serving voice buffer", e);
+            return ResponseEntity.internalServerError().build();
         }
     }
 

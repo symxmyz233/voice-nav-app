@@ -54,7 +54,7 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
       return res.status(500).json({ error: 'Gemini API error: ' + geminiError.message });
     }
 
-    if (geminiResult.error || !geminiResult.stops || geminiResult.stops.length === 0) {
+    if (geminiResult.error || !Array.isArray(geminiResult.stops) || geminiResult.stops.length === 0) {
       return res.status(400).json({
         error: geminiResult.error || 'No locations found in audio'
       });
@@ -121,6 +121,50 @@ router.post('/route', async (req, res) => {
     res.status(500).json({
       error: error.message || 'Failed to get route'
     });
+  }
+});
+
+/**
+ * GET /api/voice-buffers
+ * List all saved voice buffer files
+ */
+router.get('/voice-buffers', (req, res) => {
+  try {
+    if (!fs.existsSync(VOICE_BUFFER_DIR)) {
+      return res.json({ success: true, buffers: [] });
+    }
+
+    const files = fs.readdirSync(VOICE_BUFFER_DIR);
+    const buffers = files.map((filename) => {
+      const stats = fs.statSync(path.join(VOICE_BUFFER_DIR, filename));
+      return { filename, size: stats.size };
+    });
+
+    res.json({ success: true, buffers });
+  } catch (error) {
+    console.error('Error listing voice buffers:', error);
+    res.status(500).json({ error: 'Failed to list voice buffers' });
+  }
+});
+
+/**
+ * GET /api/voice-buffers/:filename
+ * Serve a specific voice buffer audio file
+ */
+router.get('/voice-buffers/:filename', (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename);
+    const filePath = path.join(VOICE_BUFFER_DIR, filename);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    fs.createReadStream(filePath).pipe(res);
+  } catch (error) {
+    console.error('Error serving voice buffer:', error);
+    res.status(500).json({ error: 'Failed to serve voice buffer' });
   }
 });
 

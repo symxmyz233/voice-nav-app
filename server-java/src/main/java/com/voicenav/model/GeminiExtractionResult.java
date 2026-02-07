@@ -12,6 +12,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class GeminiExtractionResult {
+    private String transcript;
     private List<StopInfo> stops;
     private String error;
 }
