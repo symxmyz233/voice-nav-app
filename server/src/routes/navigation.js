@@ -97,6 +97,36 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
       originalname: req.file.originalname
     });
 
+    // Parse current route from request body if provided
+    let currentRoute = null;
+    if (req.body.currentRoute) {
+      try {
+        currentRoute = JSON.parse(req.body.currentRoute);
+        console.log('✅ Current route context provided:', {
+          stops: currentRoute.stops?.length || 0,
+          stopNames: currentRoute.stops?.map(s => s.name || s.address).join(' → ')
+        });
+      } catch (e) {
+        console.log('❌ Failed to parse currentRoute:', e.message);
+      }
+    } else {
+      console.log('⚠️  No current route context - this will be treated as a new route');
+    }
+
+    // Parse user location from request body if provided
+    let userLocation = null;
+    if (req.body.userLocation) {
+      try {
+        userLocation = JSON.parse(req.body.userLocation);
+        console.log('✅ User location provided:', {
+          lat: userLocation.lat,
+          lng: userLocation.lng
+        });
+      } catch (e) {
+        console.log('❌ Failed to parse userLocation:', e.message);
+      }
+    }
+
     console.log('Processing with Gemini...');
 
     // Step 1: Extract stops from audio using Gemini
@@ -104,9 +134,23 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
     try {
       geminiResult = await extractStopsFromAudio(
         req.file.buffer,
-        req.file.mimetype
+        req.file.mimetype,
+        currentRoute
       );
-      console.log('Gemini response:', geminiResult);
+      console.log('\n========== GEMINI EXTRACTION RESULT ==========');
+      console.log('📝 Transcript:', geminiResult.transcript);
+      console.log('🎯 Command type:', geminiResult.commandType);
+      console.log('📍 Number of stops extracted:', geminiResult.stops.length);
+      console.log('🗺️  Insert position:', JSON.stringify(geminiResult.insertPosition));
+      geminiResult.stops.forEach((stop, i) => {
+        console.log(`\nStop ${i + 1}:`);
+        console.log(`  Original: "${stop.original}"`);
+        console.log(`  Type: ${stop.type}`);
+        console.log(`  SearchQuery: "${stop.searchQuery}"`);
+        console.log(`  BusinessName: ${stop.parsed?.businessName || 'N/A'}`);
+        console.log(`  Confidence: ${stop.confidence}`);
+      });
+      console.log('==============================================\n');
     } catch (geminiError) {
       console.error('Gemini error:', geminiError);
       return res.status(500).json({ error: 'Gemini API error: ' + geminiError.message });
@@ -136,14 +180,258 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
       console.log(`  ${i + 1}. [${stop.type}] "${stop.original}" (confidence: ${stop.confidence})`);
     });
 
-    // Step 2: Get route from Google Maps
+    // Step 2: Build final stops array based on command type
+    let finalStops = [];
+    const commandType = geminiResult.commandType || 'new_route';
+
+    if (commandType === 'new_route') {
+      // New route - use stops as-is
+      finalStops = geminiResult.stops;
+      console.log('Creating new route with', finalStops.length, 'stops');
+    } else if (commandType === 'add_stop' || commandType === 'insert_stop') {
+      // Modify existing route
+      console.log('\n========== ADD/INSERT STOP OPERATION ==========');
+      console.log('📋 Current route validation:');
+      console.log(`  Has currentRoute: ${!!currentRoute}`);
+      console.log(`  Has stops: ${!!currentRoute?.stops}`);
+      console.log(`  Stops count: ${currentRoute?.stops?.length || 0}`);
+
+      if (currentRoute?.stops) {
+        console.log('  Current route stops:');
+        currentRoute.stops.forEach((stop, i) => {
+          console.log(`    [${i}] ${stop.name || stop.original} | lat: ${stop.lat}, lng: ${stop.lng}`);
+        });
+      }
+
+      if (!currentRoute || !currentRoute.stops || currentRoute.stops.length === 0) {
+        console.log('❌ No current route found - cannot add stop');
+        return res.status(400).json({
+          error: 'Cannot add stop - no existing route found. Please create a route first.'
+        });
+      }
+
+      // Validate: should only have ONE stop for add/insert commands
+      if (geminiResult.stops.length === 0) {
+        return res.status(400).json({
+          error: 'No location found to add/insert'
+        });
+      }
+      if (geminiResult.stops.length > 1) {
+        console.warn(`⚠️ Expected 1 stop for ${commandType}, got ${geminiResult.stops.length}. Using first stop only.`);
+      }
+
+      const newStop = geminiResult.stops[0]; // Use only the first stop
+      console.log('🆕 New stop to add:', {
+        original: newStop.original,
+        searchQuery: newStop.searchQuery,
+        type: newStop.type,
+        confidence: newStop.confidence
+      });
+
+      console.log('\n========== DUPLICATE CHECK ==========');
+      console.log('🆕 New stop to add:', {
+        original: newStop.original,
+        searchQuery: newStop.searchQuery,
+        type: newStop.type
+      });
+      console.log('📋 Existing stops in route:');
+      currentRoute.stops.forEach((s, i) => {
+        console.log(`  ${i}: "${s.name || s.original || s.searchQuery}"`);
+      });
+
+      // Check for duplicate stops
+      const isDuplicate = currentRoute.stops.some(existingStop => {
+        const newQuery = (newStop.searchQuery || newStop.original || '').toLowerCase().trim();
+        const existingQuery = (existingStop.searchQuery || existingStop.original || existingStop.name || '').toLowerCase().trim();
+
+        // Extract business name for comparison
+        const extractBusinessName = (str) => {
+          return str.replace(/,?\s+(in|at|near|downtown|edison|new jersey|nj|usa)$/gi, '').trim();
+        };
+
+        const newBusiness = extractBusinessName(newQuery);
+        const existingBusiness = extractBusinessName(existingQuery);
+
+        // Check for exact match or partial match
+        if (newQuery === existingQuery) {
+          console.log(`🔍 Duplicate detected: exact match "${newQuery}"`);
+          return true;
+        }
+
+        if (newBusiness === existingBusiness && newBusiness.length > 3) {
+          console.log(`🔍 Duplicate detected: same business "${newBusiness}"`);
+          return true;
+        }
+
+        // Check if one contains the other (for cases like "Starbucks" vs "Starbucks Edison")
+        if (newQuery.length > 5 && existingQuery.length > 5) {
+          if (newQuery.includes(existingQuery) || existingQuery.includes(newQuery)) {
+            console.log(`🔍 Duplicate detected: partial match "${newQuery}" vs "${existingQuery}"`);
+            return true;
+          }
+        }
+
+        return false;
+      });
+
+      if (isDuplicate) {
+        console.log('🚫 DUPLICATE DETECTED - Stop already exists in route, skipping');
+        console.log('=====================================\n');
+        return res.json({
+          success: true,
+          message: 'This location is already in your route',
+          route: currentRoute,
+          commandType: 'duplicate_stop'
+        });
+      }
+
+      console.log('✅ No duplicate found - proceeding to add stop');
+      console.log('=====================================\n');
+
+      // Start with existing stops
+      finalStops = [...currentRoute.stops];
+      const insertPos = geminiResult.insertPosition || { type: 'append' };
+
+      console.log('\n🔧 Modifying route:');
+      console.log('  Insert position:', insertPos);
+      console.log('  Current stops before insert:', finalStops.length);
+
+      if (insertPos.type === 'append') {
+        // Add to end (before final destination)
+        finalStops.splice(finalStops.length - 1, 0, newStop);
+        console.log(`  ✓ Appended stop before destination (index: ${finalStops.length - 2})`);
+      } else if (insertPos.type === 'after' && insertPos.referenceIndex !== null) {
+        // Insert after reference stop
+        finalStops.splice(insertPos.referenceIndex + 1, 0, newStop);
+        console.log(`  ✓ Inserted after stop ${insertPos.referenceIndex} (new index: ${insertPos.referenceIndex + 1})`);
+      } else if (insertPos.type === 'before' && insertPos.referenceIndex !== null) {
+        // Insert before reference stop
+        finalStops.splice(insertPos.referenceIndex, 0, newStop);
+        console.log(`  ✓ Inserted before stop ${insertPos.referenceIndex} (new index: ${insertPos.referenceIndex})`);
+      } else if (insertPos.type === 'between' && insertPos.referenceIndex !== null && insertPos.referenceIndex2 !== null) {
+        // Insert between two stops
+        const insertIndex = Math.max(insertPos.referenceIndex, insertPos.referenceIndex2);
+        finalStops.splice(insertIndex, 0, newStop);
+        console.log(`  ✓ Inserted between stops ${insertPos.referenceIndex} and ${insertPos.referenceIndex2} (new index: ${insertIndex})`);
+      } else {
+        // Default: append before destination
+        finalStops.splice(finalStops.length - 1, 0, newStop);
+        console.log(`  ✓ Using default append position (index: ${finalStops.length - 2})`);
+      }
+
+      console.log('\n📊 Final stops array after insert:');
+      finalStops.forEach((stop, i) => {
+        const marker = i === finalStops.length - 1 ? '🏁' : (i === 0 ? '🚩' : '📍');
+        console.log(`  ${marker} [${i}] ${stop.original || stop.name} ${stop.searchQuery ? `(query: "${stop.searchQuery}")` : ''}`);
+      });
+      console.log('==============================================\n');
+    } else if (commandType === 'replace_stop') {
+      // Replace existing stop
+      if (!currentRoute || !currentRoute.stops || currentRoute.stops.length === 0) {
+        return res.status(400).json({
+          error: 'Cannot replace stop - no existing route found.'
+        });
+      }
+
+      // Validate: should only have ONE stop for replace commands
+      if (geminiResult.stops.length === 0) {
+        return res.status(400).json({
+          error: 'No location found to replace with'
+        });
+      }
+      if (geminiResult.stops.length > 1) {
+        console.warn(`⚠️ Expected 1 stop for ${commandType}, got ${geminiResult.stops.length}. Using first stop only.`);
+      }
+
+      finalStops = [...currentRoute.stops];
+      const newStop = geminiResult.stops[0]; // Use only the first stop
+      const insertPos = geminiResult.insertPosition || {};
+
+      if (insertPos.referenceIndex !== null && insertPos.referenceIndex >= 0 && insertPos.referenceIndex < finalStops.length) {
+        finalStops[insertPos.referenceIndex] = newStop;
+        console.log(`Replacing stop ${insertPos.referenceIndex}`);
+      } else {
+        return res.status(400).json({
+          error: 'Cannot replace stop - invalid reference index.'
+        });
+      }
+    }
+
+    console.log('Final stops array:', finalStops.map(s => s.original || s.searchQuery));
+
+    // Step 2.5: Check confidence levels - if any stop has confidence < 0.9, ask for confirmation
+    const CONFIDENCE_THRESHOLD = 0.9;
+    const lowConfidenceStops = finalStops.filter(stop =>
+      stop.confidence !== undefined && stop.confidence < CONFIDENCE_THRESHOLD
+    );
+
+    if (lowConfidenceStops.length > 0) {
+      console.log(`⚠️ Found ${lowConfidenceStops.length} stops with low confidence - requesting user confirmation`);
+      return res.json({
+        success: true,
+        needsConfirmation: true,
+        transcript: geminiResult.transcript || null,
+        commandType: geminiResult.commandType || 'new_route',
+        stops: finalStops,
+        lowConfidenceStops: lowConfidenceStops.map(s => s.original),
+        message: 'Please confirm the detected addresses before proceeding'
+      });
+    }
+
+    // Step 3: Get route from Google Maps
     console.log('Getting route from Google Maps...');
-    const routeData = await getMultiStopRoute(geminiResult.stops);
+
+    // Build geocoding context with user location and route context
+    let geocodingContext = null;
+
+    // Priority 1: User's current location (most accurate for new routes)
+    if (userLocation && userLocation.lat && userLocation.lng) {
+      geocodingContext = {
+        userLocation: { lat: userLocation.lat, lng: userLocation.lng }
+      };
+      console.log(`🎯 Using user location for geocoding: (${userLocation.lat.toFixed(4)}, ${userLocation.lng.toFixed(4)})`);
+    }
+
+    // Priority 2: Route context for add_stop/insert_stop commands
+    if ((commandType === 'add_stop' || commandType === 'insert_stop') && currentRoute?.stops?.length > 0) {
+      // Calculate midpoint of current route for better location bias
+      const existingStops = currentRoute.stops.filter(s => s.lat && s.lng);
+      if (existingStops.length > 0) {
+        const avgLat = existingStops.reduce((sum, s) => sum + s.lat, 0) / existingStops.length;
+        const avgLng = existingStops.reduce((sum, s) => sum + s.lng, 0) / existingStops.length;
+
+        if (!geocodingContext) {
+          geocodingContext = {};
+        }
+        geocodingContext.routeMidpoint = { lat: avgLat, lng: avgLng };
+        geocodingContext.destination = existingStops[existingStops.length - 1];
+        console.log(`🎯 Also using route context for geocoding: midpoint (${avgLat.toFixed(4)}, ${avgLng.toFixed(4)})`);
+      }
+    }
+
+    const routeData = await getMultiStopRoute(finalStops, geocodingContext);
+
+    console.log('\n========== ROUTE CALCULATION COMPLETE ==========');
+    console.log('📍 Final route has', routeData.stops?.length || 0, 'stops:');
+    if (routeData.stops) {
+      routeData.stops.forEach((stop, i) => {
+        const marker = i === routeData.stops.length - 1 ? '🏁' : (i === 0 ? '🚩' : '📍');
+        console.log(`  ${marker} [${i}] ${stop.name}`);
+        console.log(`       Address: ${stop.address}`);
+        console.log(`       Coords: (${stop.lat}, ${stop.lng})`);
+        console.log(`       Original: "${stop.original}"`);
+      });
+    }
+    console.log('🚗 Total distance:', routeData.totalDistance);
+    console.log('⏱️  Total duration:', routeData.totalDuration);
+    console.log('===============================================\n');
 
     const result = {
       success: true,
       transcript: geminiResult.transcript || null,
+      commandType: geminiResult.commandType || 'new_route',
       extractedStops: geminiResult.stops,
+      insertPosition: geminiResult.insertPosition || null,
       route: routeData,
       warnings: routeData.warnings || []
     };
@@ -174,8 +462,18 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
  * Get route for manually specified stops
  */
 router.post('/route', async (req, res) => {
+  console.log('\n========== /api/route CALLED ==========');
   try {
     const { stops } = req.body;
+
+    console.log('📍 Received stops:', stops.length);
+    stops.forEach((stop, i) => {
+      console.log(`  Stop ${i}:`, {
+        name: stop.name || stop.original || stop.searchQuery,
+        hasCoords: !!(stop.lat && stop.lng),
+        coords: stop.lat && stop.lng ? `${stop.lat}, ${stop.lng}` : 'N/A'
+      });
+    });
 
     if (!stops || !Array.isArray(stops) || stops.length < 2) {
       return res.status(400).json({
@@ -183,7 +481,10 @@ router.post('/route', async (req, res) => {
       });
     }
 
+    console.log('🚗 Calculating route...');
     const routeData = await getMultiStopRoute(stops);
+    console.log('✅ Route calculated successfully');
+    console.log('======================================\n');
     let cache = null;
 
     try {

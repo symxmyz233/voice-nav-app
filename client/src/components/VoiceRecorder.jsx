@@ -1,10 +1,73 @@
 import { useState, useRef, useCallback } from 'react';
 
-function VoiceRecorder({ onResult, onError, onLoadingChange }) {
+function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null, userLocation = null }) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
+
+  const sendAudioToBackend = useCallback(async (audioBlob) => {
+    setIsProcessing(true);
+    onLoadingChange(true);
+
+    console.log('🎤 Sending audio to backend with context:', {
+      hasCurrentRoute: !!currentRoute,
+      stopsCount: currentRoute?.stops?.length || 0,
+      stopNames: currentRoute?.stops?.map(s => s.name || s.address).join(' → ') || 'none',
+      hasUserLocation: !!userLocation,
+      userLocation: userLocation ? `${userLocation.lat}, ${userLocation.lng}` : 'none'
+    });
+
+    try {
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'recording.webm');
+
+      // Include current route context if available
+      if (currentRoute) {
+        formData.append('currentRoute', JSON.stringify(currentRoute));
+        console.log('✅ Current route added to FormData');
+      } else {
+        console.log('⚠️ No current route - creating new route');
+      }
+
+      // Include user location if available
+      if (userLocation) {
+        formData.append('userLocation', JSON.stringify(userLocation));
+        console.log('✅ User location added to FormData:', userLocation);
+      }
+
+      const response = await fetch('/api/process-voice', {
+        method: 'POST',
+        body: formData
+      });
+
+      const text = await response.text();
+      console.log('Server response:', text);
+
+      if (!text) {
+        throw new Error('Empty response from server');
+      }
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error(`Invalid JSON response: ${text.substring(0, 100)}`);
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to process audio');
+      }
+
+      onResult(data);
+    } catch (err) {
+      console.error('Error sending audio:', err);
+      onError(err.message || 'Failed to process voice input');
+    } finally {
+      setIsProcessing(false);
+      onLoadingChange(false);
+    }
+  }, [currentRoute, userLocation, onLoadingChange, onResult, onError]);
 
   const startRecording = useCallback(async () => {
     try {
@@ -39,7 +102,7 @@ function VoiceRecorder({ onResult, onError, onLoadingChange }) {
       console.error('Error accessing microphone:', err);
       onError('Could not access microphone. Please check permissions.');
     }
-  }, [onError]);
+  }, [onError, sendAudioToBackend]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
@@ -47,47 +110,6 @@ function VoiceRecorder({ onResult, onError, onLoadingChange }) {
       setIsRecording(false);
     }
   }, [isRecording]);
-
-  const sendAudioToBackend = async (audioBlob) => {
-    setIsProcessing(true);
-    onLoadingChange(true);
-
-    try {
-      const formData = new FormData();
-      formData.append('audio', audioBlob, 'recording.webm');
-
-      const response = await fetch('/api/process-voice', {
-        method: 'POST',
-        body: formData
-      });
-
-      const text = await response.text();
-      console.log('Server response:', text);
-
-      if (!text) {
-        throw new Error('Empty response from server');
-      }
-
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch (e) {
-        throw new Error(`Invalid JSON response: ${text.substring(0, 100)}`);
-      }
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to process audio');
-      }
-
-      onResult(data);
-    } catch (err) {
-      console.error('Error sending audio:', err);
-      onError(err.message || 'Failed to process voice input');
-    } finally {
-      setIsProcessing(false);
-      onLoadingChange(false);
-    }
-  };
 
   const handleClick = () => {
     if (isRecording) {
@@ -130,7 +152,9 @@ function VoiceRecorder({ onResult, onError, onLoadingChange }) {
       </p>
 
       <p style={{ fontSize: '0.8rem', color: '#9ca3af', marginTop: '10px' }}>
-        Example: "Navigate from San Francisco to Los Angeles with a stop in San Jose"
+        {currentRoute
+          ? 'Examples: "Add a stop at Times Square" or "Add Starbucks between stop 1 and 2"'
+          : 'Example: "Navigate from San Francisco to Los Angeles with a stop in San Jose"'}
       </p>
     </div>
   );
