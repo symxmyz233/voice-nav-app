@@ -102,20 +102,30 @@ export function recommendCoffeeShops(
 
   // Sort based on criteria
   let sorted;
+  const getDistanceValue = (shop) => {
+    if (isRouteSearch && shop.distanceFromRoute !== undefined) {
+      return shop.distanceFromRoute;
+    }
+    return shop.distance ?? Number.POSITIVE_INFINITY;
+  };
   switch (sortBy) {
     case 'rating':
-      sorted = withScores.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+      sorted = withScores.sort((a, b) => {
+        const ratingDiff = (b.rating || 0) - (a.rating || 0);
+        if (ratingDiff !== 0) return ratingDiff;
+        return getDistanceValue(a) - getDistanceValue(b);
+      });
       break;
     case 'distance':
       sorted = withScores.sort((a, b) => {
-        const distA = isRouteSearch && a.distanceFromRoute !== undefined
-          ? a.distanceFromRoute
-          : (a.distance ?? Number.POSITIVE_INFINITY);
-        const distB = isRouteSearch && b.distanceFromRoute !== undefined
-          ? b.distanceFromRoute
-          : (b.distance ?? Number.POSITIVE_INFINITY);
-        if (distA !== distB) return distA - distB;
-        return (b.rating || 0) - (a.rating || 0);
+        const distA = getDistanceValue(a);
+        const distB = getDistanceValue(b);
+        const distDiff = distA - distB;
+        // If shops are within 500m of each other, sort by rating instead
+        if (Math.abs(distDiff) < 500) {
+          return (b.rating || 0) - (a.rating || 0);
+        }
+        return distDiff;
       });
       break;
     case 'reviews':
@@ -155,7 +165,11 @@ export function formatShopForDisplay(shop) {
     website: shop.website,
     phone: shop.phone,
     recommendationScore: shop.recommendationScore,
-    scoreBreakdown: getScoreBreakdown(shop)
+    scoreBreakdown: getScoreBreakdown(shop),
+    sourceStopKey: shop.sourceStopKey,
+    sourceStopLabel: shop.sourceStopLabel,
+    sourceStopIndex: shop.sourceStopIndex,
+    isFallbackFood: shop.isFallbackFood === true
   };
 
   // Add route-specific info if available

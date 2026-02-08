@@ -14,6 +14,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
  * @param {number} options.limit - Maximum number of recommendations (default: 5)
  * @param {string} options.sortBy - Sort criteria (default: 'score')
  * @param {boolean} options.openNowOnly - Only open shops (default: false)
+ * @param {number} options.perStopLimit - Max recommendations per stop (default: 5)
+ * @param {string} options.keyword - Search keyword override (optional)
  * @returns {Promise<Object>} - Coffee shop recommendations
  */
 export async function searchCoffeeShops(options = {}) {
@@ -23,7 +25,9 @@ export async function searchCoffeeShops(options = {}) {
     radius = 5000,
     limit = 5,
     sortBy = 'score',
-    openNowOnly = false
+    openNowOnly = false,
+    perStopLimit,
+    keyword
   } = options;
 
   console.log('=== Frontend: Searching Coffee Shops ===');
@@ -52,7 +56,9 @@ export async function searchCoffeeShops(options = {}) {
       radius,
       limit,
       sortBy,
-      openNowOnly
+      openNowOnly,
+      ...(perStopLimit ? { perStopLimit } : {}),
+      ...(keyword ? { keyword } : {})
     };
   } else if (location) {
     console.log('Search type: Near location');
@@ -63,7 +69,9 @@ export async function searchCoffeeShops(options = {}) {
       radius,
       limit,
       sortBy,
-      openNowOnly
+      openNowOnly,
+      ...(perStopLimit ? { perStopLimit } : {}),
+      ...(keyword ? { keyword } : {})
     };
   } else {
     throw new Error('Either location or route must be provided');

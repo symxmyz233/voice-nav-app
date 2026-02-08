@@ -1,0 +1,417 @@
+{
+  "version": 1,
+  "updatedAt": "2026-02-08T21:17:41.239Z",
+  "source": "manual-route",
+  "stops": [
+    "40 Weekly Avenue, Piscataway, NJ 08854, USA",
+    "720 Middlesex Ave, Metuchen, NJ 08840, USA",
+    "Manhattan, NY, USA"
+  ],
+  "route": {
+    "stops": [
+      {
+        "name": "40 Weekly Avenue Piscataway New Jersey",
+        "lat": 40.5500011,
+        "lng": -74.475777,
+        "formattedAddress": "Piscataway, NJ 08854, USA",
+        "placeId": "ChIJ1UF7VIO4w4kReB1HYVDPmrY",
+        "allResults": [
+          {
+            "lat": 40.5500011,
+            "lng": -74.475777,
+            "formattedAddress": "Piscataway, NJ 08854, USA",
+            "placeId": "ChIJ1UF7VIO4w4kReB1HYVDPmrY"
+          }
+        ],
+        "type": "landmark",
+        "confidence": 1,
+        "original": "40 Weekly Avenue Piscataway New Jersey"
+      },
+      {
+        "name": "Starbucks Coffee Company",
+        "lat": 40.5390326,
+        "lng": -74.3697408,
+        "formattedAddress": "720 Middlesex Ave, Metuchen, NJ 08840, USA",
+        "placeId": "ChIJl_BXj9C3w4kRuaBbaliS9_4",
+        "allResults": [
+          {
+            "lat": 40.5390326,
+            "lng": -74.3697408,
+            "formattedAddress": "720 Middlesex Ave, Metuchen, NJ 08840, USA",
+            "placeId": "ChIJl_BXj9C3w4kRuaBbaliS9_4"
+          }
+        ],
+        "type": "landmark",
+        "confidence": 1,
+        "original": "Starbucks Coffee Company"
+      },
+      {
+        "name": "Manhattan",
+        "lat": 40.7685167,
+        "lng": -73.98219379999999,
+        "formattedAddress": "Manhattan, New York, NY, USA",
+        "placeId": "ChIJYeZuBI9YwokRjMDs_IEyCwo",
+        "allResults": [
+          {
+            "lat": 40.7685167,
+            "lng": -73.98219379999999,
+            "formattedAddress": "Manhattan, New York, NY, USA",
+            "placeId": "ChIJYeZuBI9YwokRjMDs_IEyCwo"
+          }
+        ],
+        "type": "landmark",
+        "confidence": 1,
+        "original": "Manhattan"
+      }
+    ],
+    "legs": [
+      {
+        "startAddress": "Piscataway, NJ 08854, USA",
+        "endAddress": "720 Middlesex Ave, Metuchen, NJ 08840, USA",
+        "distance": {
+          "text": "6.5 mi",
+          "value": 10444
+        },
+        "duration": {
+          "text": "10 mins",
+          "value": 595
+        },
+        "steps": [
+          {
+            "instruction": "Head north on Old New Brunswick Rd toward Centennial Ave",
+            "distance": {
+              "text": "0.9 mi",
+              "value": 1487
+            },
+            "duration": {
+              "text": "2 mins",
+              "value": 117
+            }
+          },
+          {
+            "instruction": "Turn right onto S Randolphville Rd",
+            "distance": {
+              "text": "0.3 mi",
+              "value": 503
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 45
+            }
+          },
+          {
+            "instruction": "Turn left to merge onto I-287 S",
+            "distance": {
+              "text": "4.0 mi",
+              "value": 6362
+            },
+            "duration": {
+              "text": "4 mins",
+              "value": 235
+            }
+          },
+          {
+            "instruction": "Take exit 3 for County Rd 501 E toward Metuchen",
+            "distance": {
+              "text": "0.1 mi",
+              "value": 172
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 27
+            }
+          },
+          {
+            "instruction": "Turn left onto County Rd 501/New Durham Rd",
+            "distance": {
+              "text": "1.2 mi",
+              "value": 1889
+            },
+            "duration": {
+              "text": "3 mins",
+              "value": 168
+            }
+          },
+          {
+            "instruction": "Turn left onto Middlesex AveDestination will be on the left",
+            "distance": {
+              "text": "102 ft",
+              "value": 31
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 3
+            }
+          }
+        ]
+      },
+      {
+        "startAddress": "720 Middlesex Ave, Metuchen, NJ 08840, USA",
+        "endAddress": "Manhattan, New York, NY, USA",
+        "distance": {
+          "text": "34.4 mi",
+          "value": 55297
+        },
+        "duration": {
+          "text": "49 mins",
+          "value": 2940
+        },
+        "steps": [
+          {
+            "instruction": "Head southwest on Middlesex Ave toward New Durham Rd",
+            "distance": {
+              "text": "102 ft",
+              "value": 31
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 3
+            }
+          },
+          {
+            "instruction": "Middlesex Ave turns right and becomes New Durham Rd",
+            "distance": {
+              "text": "0.3 mi",
+              "value": 509
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 62
+            }
+          },
+          {
+            "instruction": "Turn left onto Bridge St",
+            "distance": {
+              "text": "0.3 mi",
+              "value": 481
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 61
+            }
+          },
+          {
+            "instruction": "Turn right onto NJ-27 S/Essex AveContinue to follow NJ-27 S",
+            "distance": {
+              "text": "0.2 mi",
+              "value": 296
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 27
+            }
+          },
+          {
+            "instruction": "Take the ramp onto I-287 S",
+            "distance": {
+              "text": "2.6 mi",
+              "value": 4187
+            },
+            "duration": {
+              "text": "3 mins",
+              "value": 172
+            }
+          },
+          {
+            "instruction": "Take the I-95 N/NJ Turnpike exitToll road",
+            "distance": {
+              "text": "0.4 mi",
+              "value": 723
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 54
+            }
+          },
+          {
+            "instruction": "Take the ramp onto I-95 N/NJ TurnpikeToll road",
+            "distance": {
+              "text": "17.6 mi",
+              "value": 28333
+            },
+            "duration": {
+              "text": "16 mins",
+              "value": 962
+            }
+          },
+          {
+            "instruction": "Keep left to continue on I-95 N, follow signs for I-80 W/Lincoln TunnelToll road",
+            "distance": {
+              "text": "6.5 mi",
+              "value": 10405
+            },
+            "duration": {
+              "text": "7 mins",
+              "value": 402
+            }
+          },
+          {
+            "instruction": "Take exit 16E for NJ-495 E toward Lincoln TunnelToll road",
+            "distance": {
+              "text": "0.8 mi",
+              "value": 1259
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 74
+            }
+          },
+          {
+            "instruction": "Continue onto NJ-495 EToll roadEntering New York",
+            "distance": {
+              "text": "3.1 mi",
+              "value": 5013
+            },
+            "duration": {
+              "text": "6 mins",
+              "value": 331
+            }
+          },
+          {
+            "instruction": "Continue onto NY-495 EToll road",
+            "distance": {
+              "text": "0.8 mi",
+              "value": 1238
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 88
+            }
+          },
+          {
+            "instruction": "Take the exit on the left toward 42 St/I-495 E/NY-9A/All PtsToll road",
+            "distance": {
+              "text": "325 ft",
+              "value": 99
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 14
+            }
+          },
+          {
+            "instruction": "Take the ramp to 42 St/Uptown/DowntownToll road",
+            "distance": {
+              "text": "492 ft",
+              "value": 150
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 28
+            }
+          },
+          {
+            "instruction": "Continue onto Dyer Ave",
+            "distance": {
+              "text": "0.1 mi",
+              "value": 161
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 51
+            }
+          },
+          {
+            "instruction": "Turn left onto W 42nd St",
+            "distance": {
+              "text": "0.1 mi",
+              "value": 156
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 58
+            }
+          },
+          {
+            "instruction": "Turn right onto 10th AvePass by Grace Wine &amp; Spirits (on the right)",
+            "distance": {
+              "text": "0.8 mi",
+              "value": 1367
+            },
+            "duration": {
+              "text": "5 mins",
+              "value": 315
+            }
+          },
+          {
+            "instruction": "Continue onto Amsterdam Ave",
+            "distance": {
+              "text": "0.1 mi",
+              "value": 239
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 39
+            }
+          },
+          {
+            "instruction": "Turn right onto W 62nd St",
+            "distance": {
+              "text": "0.2 mi",
+              "value": 273
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 67
+            }
+          },
+          {
+            "instruction": "Turn right onto Columbus Ave",
+            "distance": {
+              "text": "256 ft",
+              "value": 78
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 24
+            }
+          },
+          {
+            "instruction": "Turn left onto W 61st St",
+            "distance": {
+              "text": "0.1 mi",
+              "value": 158
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 56
+            }
+          },
+          {
+            "instruction": "Turn right onto BroadwayToll road",
+            "distance": {
+              "text": "463 ft",
+              "value": 141
+            },
+            "duration": {
+              "text": "1 min",
+              "value": 52
+            }
+          }
+        ]
+      }
+    ],
+    "overview_polyline": "k|nvF~_qeMiJwB_HmCsHmFkC_Cs@eAaAsBuAmBoAqAqAuAqAsCgEwKsCkH_B}DZ[xAkAbCkBdF}D~GcFEoHJuLE_GZyKf@iQZwKh@yQDsPe@wOuBiU_Fy`@gAoNMaGF_J|@mNdBgL|CgLdKeYvVwq@x]}`AxFeO`AaCvAcD|AkDXGZ[|@y@rAm@r@C\\UBa@HqABwBK_GBgDp@{EpA_Eb@qDzAqRvDaf@hAmY^cI@SDg@]WMSLR\\VEf@ARIdBOlCQrF_@zJQ|DGlAzAMfDUzBSzBQrDUdBKfAG^l@p@dARXHLbAbBnDbGH`C_AjCmB`Dk@Zq@Gq@_AI{@X{ApCaGf@wArDeHzLgVlDkJfDgMvCmRhAiQLqJOgK{AmR_Em`@_AgTBiO~@aRxCoUzAiDp@k@j@Mj@B~@`@lB|Dh@nAr@x@~F`Mr@bDJjAe@|Bu@p@w@N{@Kk@_@uBoEyDuIiBmD_C{DeAqBiHeMaJmOuG{KcImO{JeVwFyQ{DoPqCcNcD_SiBeQcCe^kGiz@yC}UqCwOkCgLiGgTgJaVsL{UeSy_@kGsKqHuKoLkNse@yc@kfA}aAiVaRuYcQaZqPaScKgSmL}QkK}LoGgu@y_@waBqz@uh@aYaO{H_r@s]{R{I_F_C}EmDgGqGsGoKyOy]_GsM{C_GcEwFaE}DoCsBwP_KyKwGuMmJoXsVs_@s]sJcIeG}DgUmN}YuQar@}b@_U_OsUaMqYuMmJgFcIeFaCyByDsEiFqJkDiKyDcNaCwHkBoEsB_EaDyE}GgHmGgEqDaBuGsBaOkEmFkByDoBeFaE}CuD}HeLmHuJcEeE}DeCaDwAwG}AiG_@wTe@wEo@iZqHaFwB{GcE_DgC_HmHaGgJwGiOmGmPsHyTqByGwBoJuAyJu@{JUiOE{KMk]a@mMaB}MeDuMoDsJ_Ng_@uMw_@sHqRuIwNuHqIsHmGqIgFiJ_Fo@aA}@k@yEgDyEaDoDgCmD{AsCkAs@q@sAiCg@sBYaEZmGbFaRzBsGrBqE|@eBx@cC~@iLbCkKfC}J`GoUfEuNjDcJlEcLtFkQ`Ly\\jAeBz@g@`AYrA?lEp@`IvBbC`ArA|ATdBOxAe@~@aAh@qAUkBiBiGwD{C_Du@sB]qCLkDf@uBnKy[j[w`AtPci@r@_Gb@gBUoA}AiA}BiA{DgCoCjHaEoCy@i@kAu@kHyEuHcFcLsHkNeJsKgHwFqDWQNc@d@}ApA_ExAsEJ_@fAt@^TPL`@oAbAaDf@qA`BEdCAT?",
+    "bounds": {
+      "northeast": {
+        "lat": 40.78030390000001,
+        "lng": -73.9821971
+      },
+      "southwest": {
+        "lat": 40.52421289999999,
+        "lng": -74.47568179999999
+      }
+    },
+    "totals": {
+      "distance": {
+        "value": 65741,
+        "text": "40.8 mi"
+      },
+      "duration": {
+        "value": 3535,
+        "text": "58 min"
+      }
+    },
+    "warnings": []
+  }
+}

@@ -10,19 +10,20 @@ const mapsClient = new Client({});
  * @param {number} radius - Search radius in meters (default: 5000)
  * @returns {Promise<Array>} - Array of coffee shop places
  */
-export async function findNearbyCoffeeShops(lat, lng, radius = 5000) {
+export async function findNearbyCoffeeShops(lat, lng, radius = 5000, keyword = 'coffee') {
   try {
     const apiKey = process.env.GOOGLE_MAPS_API_KEY;
     const apiKeyPreview = apiKey ? `${apiKey.substring(0, 10)}...${apiKey.substring(apiKey.length - 4)}` : 'NOT_SET';
 
     console.log('=== Coffee Shop Search Debug ===');
     console.log(`Searching for coffee shops near ${lat}, ${lng} within ${radius}m`);
+    console.log(`Keyword: ${keyword}`);
     console.log(`API Key (partial): ${apiKeyPreview}`);
     console.log(`Request params:`, {
       location: { lat, lng },
       radius,
       type: 'cafe',
-      keyword: 'coffee'
+      keyword
     });
 
     const response = await mapsClient.placesNearby({
@@ -30,7 +31,7 @@ export async function findNearbyCoffeeShops(lat, lng, radius = 5000) {
         location: { lat, lng },
         radius,
         type: 'cafe',
-        keyword: 'coffee',
+        keyword,
         key: apiKey
       }
     });
@@ -79,6 +80,84 @@ export async function findNearbyCoffeeShops(lat, lng, radius = 5000) {
     }
 
     console.error('=== End Coffee Shop Search Error ===');
+    throw error;
+  }
+}
+
+/**
+ * Search for nearby food places (non-coffee fallback).
+ * @param {number} lat - Latitude
+ * @param {number} lng - Longitude
+ * @param {number} radius - Search radius in meters (default: 5000)
+ * @returns {Promise<Array>} - Array of food places
+ */
+export async function findNearbyFoodShops(lat, lng, radius = 5000) {
+  try {
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+    const apiKeyPreview = apiKey ? `${apiKey.substring(0, 10)}...${apiKey.substring(apiKey.length - 4)}` : 'NOT_SET';
+
+    console.log('=== Food Shop Search Debug ===');
+    console.log(`Searching for food places near ${lat}, ${lng} within ${radius}m`);
+    console.log(`API Key (partial): ${apiKeyPreview}`);
+    console.log('Request params:', {
+      location: { lat, lng },
+      radius,
+      type: 'restaurant',
+      keyword: 'food'
+    });
+
+    const response = await mapsClient.placesNearby({
+      params: {
+        location: { lat, lng },
+        radius,
+        type: 'restaurant',
+        keyword: 'food',
+        key: apiKey
+      }
+    });
+
+    console.log(`Google API Response Status: ${response.data.status}`);
+    console.log('Google API Error Message:', response.data.error_message || 'None');
+
+    if (response.data.status === 'ZERO_RESULTS') {
+      console.log('No food places found');
+      return [];
+    }
+
+    if (response.data.status !== 'OK') {
+      const errorDetails = {
+        status: response.data.status,
+        errorMessage: response.data.error_message,
+        httpStatus: response.status,
+        httpStatusText: response.statusText
+      };
+      console.error('Google Places API Error Details:', errorDetails);
+      throw new Error(`Places API error: ${response.data.status} - ${response.data.error_message || 'No error message'}`);
+    }
+
+    const candidates = response.data.results.slice(0, 6);
+    const detailedPlaces = await Promise.all(
+      candidates.map(place => getPlaceDetails(place.place_id))
+    );
+
+    const validPlaces = detailedPlaces.filter(place => place !== null);
+    console.log(`Successfully retrieved details for ${validPlaces.length} food places`);
+    console.log('=== End Food Shop Search Debug ===');
+
+    return validPlaces;
+  } catch (error) {
+    console.error('=== Food Shop Search Error ===');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+
+    if (error.response) {
+      console.error('HTTP Response Status:', error.response.status);
+      console.error('HTTP Response Data:', error.response.data);
+      console.error('HTTP Response Headers:', error.response.headers);
+    }
+
+    console.error('=== End Food Shop Search Error ===');
     throw error;
   }
 }
@@ -177,12 +256,13 @@ function toRad(deg) {
  * @param {number} radius - Search radius from route in meters (default: 5000)
  * @returns {Promise<Array>} - Array of coffee shop places with route proximity data
  */
-export async function findCoffeeShopsAlongRoute(route, radius = 5000) {
+export async function findCoffeeShopsAlongRoute(route, radius = 5000, keyword = 'coffee') {
   try {
     console.log('=== Coffee Shop Search Along Route ===');
     console.log(`Route: ${route.origin.name || 'Origin'} → ${route.destination.name || 'Destination'}`);
     console.log(`Waypoints: ${route.waypoints?.length || 0}`);
     console.log(`Search radius: ${radius}m from route`);
+    console.log(`Keyword: ${keyword}`);
 
     // Generate search points along the route
     // Use larger spacing (50km) to avoid too many API calls
@@ -202,7 +282,7 @@ export async function findCoffeeShopsAlongRoute(route, radius = 5000) {
             location: { lat: point.lat, lng: point.lng },
             radius,
             type: 'cafe',
-            keyword: 'coffee',
+            keyword,
             key: process.env.GOOGLE_MAPS_API_KEY
           }
         });

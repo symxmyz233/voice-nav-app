@@ -152,13 +152,9 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
       </p>
 
       <p style={{ fontSize: '0.8rem', color: '#9ca3af', marginTop: '10px' }}>
-<<<<<<< Updated upstream
         {currentRoute
           ? 'Examples: "Add a stop at Times Square" or "Add Starbucks between stop 1 and 2"'
-          : 'Example: "Navigate from San Francisco to Los Angeles with a stop in San Jose"'}
-=======
-        Examples: "Navigate from San Francisco to Los Angeles" or "Find nearest coffee shop"
->>>>>>> Stashed changes
+          : 'Examples: "Navigate from San Francisco to Los Angeles" or "Find nearest coffee shop"'}
       </p>
     </div>
   );

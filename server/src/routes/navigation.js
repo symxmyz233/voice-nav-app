@@ -5,12 +5,11 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { extractStopsFromAudio } from '../services/gemini.js';
 import { getMultiStopRoute } from '../services/maps.js';
-<<<<<<< Updated upstream
 import { isValidEmail, sendRouteEmail } from '../services/email.js';
-import { findNearbyCoffeeShops } from '../services/placeService.js';
-=======
-import { findNearbyCoffeeShops, findCoffeeShopsAlongRoute } from '../services/placeService.js';
->>>>>>> Stashed changes
+import {
+  findNearbyCoffeeShops,
+  findNearbyFoodShops
+} from '../services/placeService.js';
 import { recommendCoffeeShops, formatShopForDisplay } from '../utils/coffeeShopRecommender.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -671,10 +670,141 @@ router.get('/test', (req, res) => {
   res.json({ status: 'ok', message: 'API is working' });
 });
 
+function buildRouteStops(route) {
+  if (!route) return [];
+
+  const stops = [];
+  const origin = route.origin;
+  const destination = route.destination;
+  const waypoints = Array.isArray(route.waypoints) ? route.waypoints : [];
+
+  if (origin) {
+    stops.push({
+      key: 'origin',
+      index: 0,
+      lat: Number(origin.lat),
+      lng: Number(origin.lng),
+      name: origin.name || 'Start',
+      label: origin.name ? `Start: ${origin.name}` : 'Start'
+    });
+  }
+
+  waypoints.forEach((wp, index) => {
+    stops.push({
+      key: `stop_${index + 1}`,
+      index: index + 1,
+      lat: Number(wp.lat),
+      lng: Number(wp.lng),
+      name: wp.name || `Stop ${index + 1}`,
+      label: wp.name ? `Stop ${index + 1}: ${wp.name}` : `Stop ${index + 1}`
+    });
+  });
+
+  if (destination) {
+    stops.push({
+      key: 'destination',
+      index: waypoints.length + 1,
+      lat: Number(destination.lat),
+      lng: Number(destination.lng),
+      name: destination.name || 'End',
+      label: destination.name ? `End: ${destination.name}` : 'End'
+    });
+  }
+
+  return stops.filter(stop => Number.isFinite(stop.lat) && Number.isFinite(stop.lng));
+}
+
+function dedupeRecommendations(groups = {}) {
+  const seen = new Set();
+  const all = [];
+
+  Object.values(groups).forEach((group) => {
+    if (!Array.isArray(group)) return;
+    group.forEach((shop) => {
+      const key = shop.placeId || `${shop.name}-${shop.location?.lat}-${shop.location?.lng}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      all.push(shop);
+    });
+  });
+
+  return all;
+}
+
+async function findCoffeeShopsByStops(stops, radius, perStopLimit, keyword) {
+  const grouped = {};
+  const fallbackFood = {};
+  const labels = {};
+  const order = [];
+  const indexes = {};
+
+  const results = await Promise.all(stops.map(async (stop) => {
+    try {
+      const shops = await findNearbyCoffeeShops(stop.lat, stop.lng, radius, keyword);
+      const openShops = shops.filter(shop => shop.openNow === true);
+
+      let recommendations = [];
+      let foodFallback = [];
+
+      if (openShops.length > 0) {
+        recommendations = recommendCoffeeShops(openShops, stop.lat, stop.lng, {
+          limit: perStopLimit,
+          sortBy: 'distance'
+        }).map(shop => formatShopForDisplay({
+          ...shop,
+          sourceStopKey: stop.key,
+          sourceStopLabel: stop.label,
+          sourceStopIndex: stop.index
+        }));
+      } else {
+        const foodShops = await findNearbyFoodShops(stop.lat, stop.lng, radius);
+        if (foodShops.length > 0) {
+          foodFallback = recommendCoffeeShops(foodShops, stop.lat, stop.lng, {
+            limit: 3,
+            sortBy: 'distance'
+          }).map(shop => formatShopForDisplay({
+            ...shop,
+            sourceStopKey: stop.key,
+            sourceStopLabel: stop.label,
+            sourceStopIndex: stop.index,
+            isFallbackFood: true
+          }));
+        }
+      }
+
+      return { stop, recommendations, foodFallback };
+    } catch (error) {
+      console.error(`Stop search failed (${stop.label}):`, error.message);
+      return { stop, recommendations: [], foodFallback: [] };
+    }
+  }));
+
+  results.forEach(({ stop, recommendations, foodFallback }) => {
+    grouped[stop.key] = recommendations;
+    if (foodFallback.length > 0) {
+      fallbackFood[stop.key] = foodFallback;
+    }
+    labels[stop.key] = stop.label;
+    indexes[stop.key] = stop.index;
+    order.push(stop.key);
+  });
+
+  return {
+    grouped,
+    groupedMeta: {
+      order,
+      labels,
+      indexes,
+      defaultSort: 'distance'
+    },
+    fallbackFood
+  };
+}
+
 /**
  * POST /api/find-coffee-shops
  * Find and recommend coffee shops near a location or along a route.
- * When a route is provided, searches at three locations: origin, midpoint, destination.
+ * When a route is provided, searches around origin and each stop.
  * Returns grouped results plus a flat list for map markers.
  */
 router.post('/find-coffee-shops', async (req, res) => {
@@ -682,7 +812,17 @@ router.post('/find-coffee-shops', async (req, res) => {
   console.log('Request body:', req.body);
 
   try {
-    const { lat, lng, route, radius = 5000, limit = 10, sortBy = 'score', openNowOnly = false } = req.body;
+    const {
+      lat,
+      lng,
+      route,
+      radius = 5000,
+      limit = 10,
+      sortBy = 'score',
+      openNowOnly = false,
+      perStopLimit = 5,
+      keyword
+    } = req.body;
 
     const hasRoute = !!(route && route.origin && route.destination);
     const hasLocation = lat !== undefined && lng !== undefined;
@@ -691,97 +831,42 @@ router.post('/find-coffee-shops', async (req, res) => {
       return res.status(400).json({ error: 'Latitude and longitude must be numbers' });
     }
 
-    // --- Combined: current location + along route ---
-    if (hasRoute && hasLocation) {
-      console.log('Search type: Current location + along route');
-
-      const [currentShops, routeShops] = await Promise.all([
-        findNearbyCoffeeShops(lat, lng, radius).catch(err => {
-          console.error('Current location search failed:', err.message);
-          return [];
-        }),
-        findCoffeeShopsAlongRoute(route, radius).catch(err => {
-          console.error('Route search failed:', err.message);
-          return [];
-        })
-      ]);
-
-      const limitPerGroup = Math.max(3, Math.ceil(limit / 2));
-
-      const currentRecs = recommendCoffeeShops(currentShops, lat, lng, {
-        limit: limitPerGroup,
-        sortBy: 'distance',
-        openNowOnly
-      }).map(s => formatShopForDisplay(s));
-
-      const routeRecs = recommendCoffeeShops(routeShops, route.origin.lat, route.origin.lng, {
-        limit: limitPerGroup,
-        sortBy: 'distance',
-        openNowOnly,
-        route
-      }).map(s => formatShopForDisplay(s));
-
-      const totalFound = currentShops.length + routeShops.length;
-      console.log(`Combined results: current=${currentRecs.length}, route=${routeRecs.length}`);
-
-      return res.json({
-        success: true,
-        searchType: 'location_and_route',
-        grouped: {
-          current: currentRecs,
-          route: routeRecs
-        },
-        recommendations: [...currentRecs, ...routeRecs],
-        totalFound,
-        searchRadius: radius,
-        searchCenter: { lat, lng },
-        route: {
-          origin: route.origin.name || 'Origin',
-          destination: route.destination.name || 'Destination'
-        }
-      });
-    }
-
-    // --- Route-only search ---
     if (hasRoute) {
-      console.log('Search type: Along route');
+      console.log('Search type: By stops (open coffee shops only, excluding destination)');
 
-      const routeShops = await findCoffeeShopsAlongRoute(route, radius);
-
-      if (routeShops.length === 0) {
-        return res.json({
-          success: true,
-          searchType: 'route',
-          recommendations: [],
-          grouped: { route: [] },
-          message: 'No coffee shops found along this route'
-        });
+      const allStops = buildRouteStops(route);
+      if (!allStops.length) {
+        return res.status(400).json({ error: 'Route must include origin and destination with coordinates' });
       }
 
-      const routeRecs = recommendCoffeeShops(routeShops, route.origin.lat, route.origin.lng, {
-        limit,
-        sortBy,
-        openNowOnly,
-        route
-      }).map(s => formatShopForDisplay(s));
+      // Exclude the last stop (destination) from coffee shop search
+      const stops = allStops.length > 1 ? allStops.slice(0, -1) : allStops;
+      console.log(`Searching ${stops.length} stops (excluded destination: ${allStops[allStops.length - 1]?.name})`);
+
+      const { grouped, groupedMeta, fallbackFood } = await findCoffeeShopsByStops(
+        stops,
+        radius,
+        perStopLimit,
+        keyword || 'coffee'
+      );
+
+      const recommendations = dedupeRecommendations(grouped);
 
       return res.json({
         success: true,
-        searchType: 'route',
-        grouped: { route: routeRecs },
-        recommendations: routeRecs,
-        totalFound: routeShops.length,
-        searchRadius: radius,
-        route: {
-          origin: route.origin.name || 'Origin',
-          destination: route.destination.name || 'Destination'
-        }
+        searchType: 'stops',
+        grouped,
+        groupedMeta,
+        fallbackFood,
+        recommendations,
+        totalFound: recommendations.length,
+        searchRadius: radius
       });
     }
 
     // --- Single location search ---
     if (hasLocation) {
-      const shops = await findNearbyCoffeeShops(lat, lng, radius);
+      const shops = await findNearbyCoffeeShops(lat, lng, radius, keyword || 'coffee');
 
       if (shops.length === 0) {
         return res.json({

@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { GoogleMap, Marker, Polyline } from '@react-google-maps/api';
+import { GoogleMap, Marker, Polyline, InfoWindow } from '@react-google-maps/api';
 import { searchCoffeeShops } from '../services/coffeeShopService.js';
-import { getCurrentPosition } from '../services/geolocationService.js';
 
 const mapContainerStyle = {
   width: '100%',
@@ -27,12 +26,29 @@ const polylineOptions = {
   strokeWeight: 5
 };
 
-function MapDisplay({ route, onCoffeeShopsFound, userLocation }) {
+// Colors for coffee shop markers grouped by stop index
+const STOP_COFFEE_COLORS = [
+  '#22c55e', // Green - Stop 0 (origin)
+  '#3b82f6', // Blue - Stop 1
+  '#8b5cf6', // Purple - Stop 2
+  '#f59e0b', // Amber - Stop 3
+  '#ec4899', // Pink - Stop 4
+  '#14b8a6', // Teal - Stop 5
+];
+
+function getStopColor(stopIndex) {
+  return STOP_COFFEE_COLORS[stopIndex % STOP_COFFEE_COLORS.length];
+}
+
+function MapDisplay({ route, onCoffeeShopsFound, onAddCoffeeShop }) {
   const [map, setMap] = useState(null);
   const [decodedPath, setDecodedPath] = useState([]);
   const [coffeeShops, setCoffeeShops] = useState([]);
+  const [coffeeShopGrouped, setCoffeeShopGrouped] = useState(null);
+  const [coffeeShopGroupMeta, setCoffeeShopGroupMeta] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [selectedShop, setSelectedShop] = useState(null);
 
   const normalizedStops = useMemo(() => {
     if (!Array.isArray(route?.stops)) return [];
@@ -100,6 +116,14 @@ function MapDisplay({ route, onCoffeeShopsFound, userLocation }) {
     }
   }, [map, route, normalizedStops]);
 
+  // Clear coffee shops when route changes
+  useEffect(() => {
+    setCoffeeShops([]);
+    setCoffeeShopGrouped(null);
+    setCoffeeShopGroupMeta(null);
+    setSelectedShop(null);
+  }, [route]);
+
   const getMarkerLabel = (index, total) => {
     if (index === 0) return 'A';
     if (index === total - 1) return String.fromCharCode(65 + index);
@@ -129,20 +153,32 @@ function MapDisplay({ route, onCoffeeShopsFound, userLocation }) {
     };
   };
 
-  // Get coffee shop marker icon
-  const getCoffeeShopMarkerIcon = (rating) => {
+  // Get coffee shop marker icon colored by associated stop
+  const getCoffeeShopMarkerIcon = useCallback((shop) => {
     const symbolPath = window.google?.maps?.SymbolPath?.CIRCLE;
     if (!symbolPath) return undefined;
 
-    const hue = Math.min(100, (rating / 5) * 120); // From red to green
+    const stopIndex = shop.sourceStopIndex ?? 0;
+    const color = getStopColor(stopIndex);
+
     return {
       path: symbolPath,
-      fillColor: `hsl(${hue}, 80%, 50%)`,
-      fillOpacity: 0.8,
+      fillColor: color,
+      fillOpacity: 0.75,
       strokeColor: '#ffffff',
       strokeWeight: 2,
-      scale: 8
+      scale: 7
     };
+  }, []);
+
+  // Format distance for display
+  const formatDistance = (shop) => {
+    if (shop.distanceValue != null) {
+      const miles = (shop.distanceValue / 1000) * 0.621371;
+      return `${miles.toFixed(1)} mi`;
+    }
+    if (shop.distance) return shop.distance;
+    return 'N/A';
   };
 
   // Handle search for nearby coffee shops
@@ -155,30 +191,19 @@ function MapDisplay({ route, onCoffeeShopsFound, userLocation }) {
     console.log('=== MapDisplay: Coffee Shop Search Started ===');
     setLoading(true);
     setError(null);
+    setSelectedShop(null);
 
     try {
-      // If we have a route, search along the route. Otherwise, use map center
       let searchOptions;
-      let resolvedLocation = userLocation;
 
       if (route && route.stops && route.stops.length >= 2) {
-        if (!resolvedLocation) {
-          try {
-            resolvedLocation = await getCurrentPosition();
-            console.log(`Resolved user location: (${resolvedLocation.lat.toFixed(4)}, ${resolvedLocation.lng.toFixed(4)})`);
-          } catch (err) {
-            console.warn('Could not resolve user location for combined search:', err.message);
-          }
-        }
-
-        // Search along the route
         const origin = route.stops[0];
         const destination = route.stops[route.stops.length - 1];
         const waypoints = route.stops.slice(1, -1);
 
-        console.log('Searching for coffee shops along route:');
+        console.log('Searching for coffee shops by stop (excluding destination):');
         console.log(`  Origin: ${origin.name} (${origin.lat}, ${origin.lng})`);
-        console.log(`  Destination: ${destination.name} (${destination.lat}, ${destination.lng})`);
+        console.log(`  Destination: ${destination.name} (excluded from search)`);
         console.log(`  Waypoints: ${waypoints.length}`);
 
         searchOptions = {
@@ -187,13 +212,11 @@ function MapDisplay({ route, onCoffeeShopsFound, userLocation }) {
             destination: { lat: destination.lat, lng: destination.lng, name: destination.name },
             waypoints: waypoints.map(wp => ({ lat: wp.lat, lng: wp.lng, name: wp.name }))
           },
-          ...(resolvedLocation ? { location: resolvedLocation } : {}),
           radius: 5000,
-          limit: 10,
-          sortBy: 'score'
+          perStopLimit: 5,
+          sortBy: 'distance'
         };
       } else {
-        // Fallback to map center
         const center = map.getCenter();
         const lat = center.lat();
         const lng = center.lng();
@@ -204,7 +227,7 @@ function MapDisplay({ route, onCoffeeShopsFound, userLocation }) {
           location: { lat, lng },
           radius: 5000,
           limit: 10,
-          sortBy: 'score'
+          sortBy: 'distance'
         };
       }
 
@@ -215,13 +238,34 @@ function MapDisplay({ route, onCoffeeShopsFound, userLocation }) {
       if (result.recommendations && result.recommendations.length > 0) {
         console.log(`Found ${result.recommendations.length} recommendations`);
         setCoffeeShops(result.recommendations);
+        setCoffeeShopGrouped(result.grouped || null);
+        setCoffeeShopGroupMeta(result.groupedMeta || null);
         if (onCoffeeShopsFound) {
-          onCoffeeShopsFound(result.recommendations, result.grouped || null);
+          onCoffeeShopsFound(
+            result.recommendations,
+            result.grouped || null,
+            result.groupedMeta || null,
+            result.fallbackFood || null
+          );
         }
+        setError(null);
       } else {
-        console.log('No coffee shops found in this area');
-        setError('No coffee shops found in this area');
+        const hasFallback = result.fallbackFood && Object.keys(result.fallbackFood).length > 0;
+        console.log('No open coffee shops found for this search');
+        setError(hasFallback
+          ? 'No open coffee shops found. Showing other food options.'
+          : 'No coffee shops found in this area');
         setCoffeeShops([]);
+        setCoffeeShopGrouped(null);
+        setCoffeeShopGroupMeta(null);
+        if (onCoffeeShopsFound) {
+          onCoffeeShopsFound(
+            [],
+            result.grouped || null,
+            result.groupedMeta || null,
+            result.fallbackFood || null
+          );
+        }
       }
     } catch (err) {
       console.error('=== MapDisplay: Coffee Shop Search Error ===');
@@ -232,7 +276,6 @@ function MapDisplay({ route, onCoffeeShopsFound, userLocation }) {
 
       let errorMessage = err.message || 'Failed to search coffee shops';
 
-      // Provide helpful error messages
       if (err.message.includes('403')) {
         errorMessage = '403 Forbidden: Check if Places API is enabled and billing is set up in Google Cloud Console';
       } else if (err.message.includes('REQUEST_DENIED')) {
@@ -243,11 +286,13 @@ function MapDisplay({ route, onCoffeeShopsFound, userLocation }) {
 
       setError(errorMessage);
       setCoffeeShops([]);
+      setCoffeeShopGrouped(null);
+      setCoffeeShopGroupMeta(null);
     } finally {
       setLoading(false);
       console.log('=== End Coffee Shop Search ===');
     }
-  }, [map, route, onCoffeeShopsFound, userLocation]);
+  }, [map, route, onCoffeeShopsFound]);
 
   return (
     <div className="map-display-container">
@@ -258,6 +303,7 @@ function MapDisplay({ route, onCoffeeShopsFound, userLocation }) {
         onLoad={onLoad}
         onUnmount={onUnmount}
         options={mapOptions}
+        onClick={() => setSelectedShop(null)}
       >
         {/* Render route polyline */}
         {decodedPath.length > 0 && (
@@ -280,21 +326,67 @@ function MapDisplay({ route, onCoffeeShopsFound, userLocation }) {
           />
         ))}
 
-        {/* Render coffee shop markers */}
+        {/* Render coffee shop markers with color coding by associated stop */}
         {coffeeShops.map((shop) => (
           <Marker
             key={shop.placeId}
             position={shop.location}
-            icon={getCoffeeShopMarkerIcon(shop.rating)}
-            title={`${shop.name} - ${shop.rating}⭐`}
-            onClick={() => {
-              if (onCoffeeShopsFound) {
-                // Trigger detail view in parent component
-              }
-            }}
+            icon={getCoffeeShopMarkerIcon(shop)}
+            title={`${shop.name} - ${shop.rating}★`}
+            onClick={() => setSelectedShop(shop)}
           />
         ))}
+
+        {/* InfoWindow popup for selected coffee shop */}
+        {selectedShop && selectedShop.location && (
+          <InfoWindow
+            position={selectedShop.location}
+            onCloseClick={() => setSelectedShop(null)}
+          >
+            <div className="coffee-info-window">
+              <div className="coffee-info-name">{selectedShop.name}</div>
+              <div className="coffee-info-rating">
+                {selectedShop.rating ? `${selectedShop.rating.toFixed(1)}/5 ★` : 'No rating'}
+              </div>
+              <div className="coffee-info-distance">
+                {formatDistance(selectedShop)} from {selectedShop.sourceStopLabel || 'stop'}
+              </div>
+              {selectedShop.address && (
+                <div className="coffee-info-address">{selectedShop.address}</div>
+              )}
+              {onAddCoffeeShop && (
+                <button
+                  className="coffee-info-add-btn"
+                  onClick={() => {
+                    onAddCoffeeShop(selectedShop, selectedShop.sourceStopIndex);
+                    setSelectedShop(null);
+                  }}
+                >
+                  Add to Route
+                </button>
+              )}
+            </div>
+          </InfoWindow>
+        )}
       </GoogleMap>
+
+      {/* Legend for coffee shop marker colors */}
+      {coffeeShopGrouped && coffeeShopGroupMeta && (
+        <div className="map-coffee-legend">
+          {coffeeShopGroupMeta.order.map((key) => {
+            const stopIndex = coffeeShopGroupMeta.indexes[key];
+            const label = coffeeShopGroupMeta.labels[key];
+            const color = getStopColor(stopIndex);
+            const count = coffeeShopGrouped[key]?.length || 0;
+            return (
+              <div key={key} className="legend-item">
+                <span className="legend-dot" style={{ backgroundColor: color }} />
+                <span className="legend-label">{label} ({count})</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Coffee shop search button */}
       <div className="map-controls">
