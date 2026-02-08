@@ -695,6 +695,7 @@ function App() {
   const handleModalAddShop = useCallback((shop) => {
     const insertAfterIndex = findInsertIndexAfterCurrentLocation();
     addShopToRoute(shop, insertAfterIndex);
+    setShowCoffeeModal(false);
   }, [findInsertIndexAfterCurrentLocation, addShopToRoute]);
 
   const handleCloseFallbackModal = useCallback(() => {
