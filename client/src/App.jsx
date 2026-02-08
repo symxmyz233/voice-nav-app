@@ -1,14 +1,15 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useJsApiLoader } from '@react-google-maps/api';
 import VoiceRecorder from './components/VoiceRecorder';
 import MapDisplay from './components/MapDisplay';
 import RouteInfo from './components/RouteInfo';
 import RouteEmailShare from './components/RouteEmailShare';
 import CoffeeShopRecommendations from './components/CoffeeShopRecommendations';
+import NearbyInfoCard from './components/NearbyInfoCard';
 import VoiceBufferList from './components/VoiceBufferList';
-import AddressConfirmation from './components/AddressConfirmation';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 const libraries = ['places', 'geometry'];
 
@@ -17,9 +18,6 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [coffeeShops, setCoffeeShops] = useState([]);
-  const [statusMessage, setStatusMessage] = useState(null);
-  const [confirmationData, setConfirmationData] = useState(null);
-  const [userLocation, setUserLocation] = useState(null);
 
   useEffect(() => {
     // Load last route
@@ -49,70 +47,230 @@ function App() {
     }
   }, []);
 
+  // Cleanup location watcher on unmount
+  useEffect(() => {
+    return () => {
+      if (locationWatchIdRef.current != null) {
+        clearWatch(locationWatchIdRef.current);
+      }
+    };
+  }, []);
+
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: GOOGLE_MAPS_API_KEY,
     libraries,
   });
 
-  const handleVoiceResult = useCallback((data) => {
-    console.log('\n========== FRONTEND: handleVoiceResult ==========');
-    console.log('📝 Transcript:', data.transcript);
-    console.log('🎯 Command Type:', data.commandType);
-    console.log('📍 Route stops:', data.route?.stops?.length || 0);
+  // Auto-add coffee shop as waypoint when voice command requests it.
+  // Uses semantic placement: route duration determines the best position
+  // when the user's preference is ambiguous.
+  const handleCoffeeShopAutoAdd = useCallback(async (route, preference) => {
+    if (!route || !route.stops || route.stops.length < 2) return;
 
-    // Log current route BEFORE update
-    console.log('\n🔍 BEFORE UPDATE:');
-    console.log('  Current routeData:', routeData);
-    if (routeData?.stops) {
-      console.log('  Current stops count:', routeData.stops.length);
-      routeData.stops.forEach((stop, i) => {
-        console.log(`    [${i}] ${stop.name} | original: "${stop.original}" | lat: ${stop.lat}, lng: ${stop.lng}`);
+    console.log('Auto-adding coffee shop with preference:', preference);
+    setAddingCoffeeShop(true);
+
+    try {
+      // 1. Resolve WHERE along the route to search using semantic analysis
+      const placement = resolvePlacement(preference, route);
+      console.log(`Semantic placement: fraction=${placement.fraction}, label="${placement.label}", brand=${placement.brand}`);
+
+      // 2. Interpolate the actual lat/lng on the route at that fraction
+      const searchPoint = interpolateRoutePoint(route.stops, placement.fraction);
+      if (!searchPoint) throw new Error('Could not determine search location');
+
+      console.log(`Searching near (${searchPoint.lat.toFixed(4)}, ${searchPoint.lng.toFixed(4)}) — ${placement.label}`);
+
+      // 3. Search for coffee shops at that point
+      const result = await searchCoffeeShops({
+        location: searchPoint,
+        radius: 5000,
+        limit: 5,
+        sortBy: 'score'
       });
-    } else {
-      console.log('  No current route');
+
+      if (!result.recommendations || result.recommendations.length === 0) {
+        setError(`No coffee shops found ${placement.label}`);
+        return;
+      }
+
+      // 4. Pick the best shop (if a brand was requested, try to match it first)
+      let bestShop = result.recommendations[0];
+      if (placement.brand) {
+        const brandMatch = result.recommendations.find(s =>
+          s.name.toLowerCase().includes(placement.brand.toLowerCase())
+        );
+        if (brandMatch) {
+          bestShop = brandMatch;
+          console.log(`Brand match found: ${bestShop.name}`);
+        } else {
+          console.log(`No "${placement.brand}" found, using top-rated: ${bestShop.name}`);
+        }
+      }
+
+      console.log('Auto-selected coffee shop:', bestShop.name);
+
+      // 5. Find optimal insertion index using detour-minimising algorithm
+      const shopPoint = { lat: bestShop.location.lat, lng: bestShop.location.lng };
+      const insertIdx = bestInsertionIndex(route.stops, shopPoint);
+
+      const newStops = [...route.stops];
+      newStops.splice(insertIdx, 0, {
+        name: bestShop.name,
+        lat: bestShop.location.lat,
+        lng: bestShop.location.lng,
+        formattedAddress: bestShop.address,
+        isCoffeeShop: true
+      });
+
+      // 6. Re-request route with the new waypoint
+      const stopQueries = newStops.map(s => ({
+        original: s.name,
+        searchQuery: s.formattedAddress || s.name,
+        type: 'landmark',
+        parsed: { landmark: s.name },
+        confidence: 1.0
+      }));
+
+      const routeResponse = await fetch(`${API_BASE_URL}/route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stops: stopQueries })
+      });
+      const routeResult = await routeResponse.json();
+
+      if (routeResult.success && routeResult.route) {
+        routeResult.route.stops = routeResult.route.stops.map(s => {
+          if (s.name === bestShop.name || s.formattedAddress?.includes(bestShop.name)) {
+            return { ...s, isCoffeeShop: true };
+          }
+          return s;
+        });
+        setRouteData(routeResult.route);
+        setCoffeeShops([bestShop]);
+      }
+    } catch (err) {
+      console.error('Failed to auto-add coffee shop:', err);
+      setError('Could not find a coffee shop to add to your route');
+    } finally {
+      setAddingCoffeeShop(false);
     }
+  }, []);
 
-    // Log new route data
-    console.log('\n✨ NEW ROUTE DATA:');
-    if (data.route?.stops) {
-      console.log('  New stops count:', data.route.stops.length);
-      data.route.stops.forEach((stop, i) => {
-        console.log(`    [${i}] ${stop.name} | original: "${stop.original}" | lat: ${stop.lat}, lng: ${stop.lng}`);
+  // Handle standalone "find nearest coffee shop" voice command
+  const handleNearbySearch = useCallback(async () => {
+    console.log('Starting nearby coffee shop search...');
+    setSearchingNearby(true);
+    setError(null);
+
+    try {
+      const position = await getCurrentPosition();
+      setUserLocation(position);
+      console.log(`User location: (${position.lat.toFixed(4)}, ${position.lng.toFixed(4)})`);
+
+      const result = await searchCoffeeShops({
+        location: position,
+        radius: 3000,
+        limit: 5,
+        sortBy: 'distance'
       });
+
+      if (!result.recommendations || result.recommendations.length === 0) {
+        setError('No coffee shops found nearby. Try expanding your search.');
+        setNearbyCoffeeResults([]);
+        return;
+      }
+
+      console.log(`Found ${result.recommendations.length} nearby coffee shops`);
+      setNearbyCoffeeResults(result.recommendations);
+      setSelectedNearbyShop(result.recommendations[0]);
+    } catch (err) {
+      console.error('Nearby search failed:', err);
+      setError(err.message || 'Failed to find nearby coffee shops');
+      setNearbyCoffeeResults([]);
+    } finally {
+      setSearchingNearby(false);
     }
+  }, []);
 
-    // Log full data object for debugging
-    console.log('\n📦 Full response data:', JSON.stringify(data, null, 2));
-    console.log('================================================\n');
-
-    // Check if confirmation is needed
-    if (data.needsConfirmation) {
-      console.log('⚠️ Low confidence detected - showing confirmation dialog');
-      setConfirmationData({
-        stops: data.stops,
-        transcript: data.transcript,
-        commandType: data.commandType
-      });
-      setLoading(false);
+  // Navigate from user's location to a selected nearby coffee shop
+  const handleNavigateToShop = useCallback(async (shop) => {
+    if (!userLocation) {
+      setError('Could not determine your location. Please try again.');
       return;
     }
 
-    // Normal flow - route already calculated
-    console.log('✅ Setting new route data (this will REPLACE the old route)');
+    console.log('Navigating to coffee shop:', shop.name);
+    setLoading(true);
+    setSelectedNearbyShop(shop);
+
+    try {
+      const stopQueries = [
+        {
+          original: 'Your Location',
+          searchQuery: `${userLocation.lat},${userLocation.lng}`,
+          type: 'full_address',
+          parsed: { landmark: 'Your Location' },
+          confidence: 1.0
+        },
+        {
+          original: shop.name,
+          searchQuery: shop.address || `${shop.location.lat},${shop.location.lng}`,
+          type: 'landmark',
+          parsed: { landmark: shop.name, businessName: shop.name },
+          confidence: 1.0
+        }
+      ];
+
+      const routeResponse = await fetch(`${API_BASE_URL}/route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stops: stopQueries })
+      });
+      const routeResult = await routeResponse.json();
+
+      if (routeResult.success && routeResult.route) {
+        setCoffeeDetourRoute(routeResult.route);
+        setIsDetourActive(true);
+
+        // Start live location tracking
+        const watchId = watchUserPosition(
+          (pos) => setUserLocation(pos),
+          (err) => console.warn('Location tracking error:', err.message)
+        );
+        locationWatchIdRef.current = watchId;
+      }
+    } catch (err) {
+      console.error('Failed to create detour route:', err);
+      setError('Failed to create navigation to coffee shop');
+    } finally {
+      setLoading(false);
+    }
+  }, [userLocation]);
+
+  // Return to main route, clearing all nearby/detour state
+  const handleReturnToMainRoute = useCallback(() => {
+    setCoffeeDetourRoute(null);
+    setIsDetourActive(false);
+    setNearbyCoffeeResults([]);
+    setSelectedNearbyShop(null);
+    setUserLocation(null);
+
+    if (locationWatchIdRef.current != null) {
+      clearWatch(locationWatchIdRef.current);
+      locationWatchIdRef.current = null;
+    }
+  }, []);
+
+  // Dismiss nearby results without clearing detour
+  const handleDismissNearby = useCallback(() => {
+    setNearbyCoffeeResults([]);
+    setSelectedNearbyShop(null);
+  }, []);
+
+  const handleVoiceResult = useCallback((data) => {
     setRouteData(data.route);
     setError(null);
-
-    // Set status message based on command type
-    if (data.commandType === 'add_stop' || data.commandType === 'insert_stop') {
-      setStatusMessage('✓ Stop added to route');
-    } else if (data.commandType === 'replace_stop') {
-      setStatusMessage('✓ Stop replaced in route');
-    } else if (data.commandType === 'new_route') {
-      setStatusMessage('✓ New route created');
-    }
-
-    // Clear status message after 3 seconds
-    setTimeout(() => setStatusMessage(null), 3000);
   }, []);
 
   const handleError = useCallback((errorMessage) => {
@@ -128,137 +286,15 @@ function App() {
     }
   }, []);
 
-  const handleCoffeeShopsFound = useCallback((shops) => {
+  const handleCoffeeShopsFound = useCallback((shops, grouped) => {
     setCoffeeShops(shops);
+    setCoffeeShopGroups(grouped || null);
   }, []);
 
   const handleCoffeeShopSelect = useCallback((shop) => {
     console.log('Selected coffee shop:', shop);
     // TODO: Add navigation to coffee shop as destination
   }, []);
-
-  const handleConfirmAddresses = useCallback(async (confirmedStops) => {
-    console.log('User confirmed addresses:', confirmedStops);
-    setConfirmationData(null);
-    setLoading(true);
-
-    try {
-      // Call /api/route with confirmed stops
-      const response = await fetch('/api/route', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stops: confirmedStops })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to calculate route');
-      }
-
-      setRouteData(data.route);
-      setStatusMessage('✓ Route created with confirmed addresses');
-      setTimeout(() => setStatusMessage(null), 3000);
-    } catch (err) {
-      setError(err.message || 'Failed to calculate route');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const handleCancelConfirmation = useCallback(() => {
-    console.log('User cancelled address confirmation');
-    setConfirmationData(null);
-    setLoading(false);
-  }, []);
-
-  const handleRemoveStop = useCallback(async (stopIndex) => {
-    if (!routeData || !routeData.stops) return;
-
-    // Can't remove if we'd have less than 2 stops (origin and destination required)
-    if (routeData.stops.length <= 2) {
-      setError('Cannot remove stop - at least 2 stops are required (origin and destination)');
-      setTimeout(() => setError(null), 3000);
-      return;
-    }
-
-    console.log(`Removing stop at index ${stopIndex}`);
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Create new stops array without the removed stop
-      const updatedStops = routeData.stops.filter((_, index) => index !== stopIndex);
-
-      // Recalculate route with updated stops
-      const response = await fetch('/api/route', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stops: updatedStops })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to recalculate route');
-      }
-
-      setRouteData(data.route);
-      setStatusMessage('✓ Stop removed and route updated');
-      setTimeout(() => setStatusMessage(null), 3000);
-    } catch (err) {
-      console.error('Error removing stop:', err);
-      setError(err.message || 'Failed to remove stop');
-    } finally {
-      setLoading(false);
-    }
-  }, [routeData]);
-
-  const handleEditStop = useCallback(async (stopIndex, newAddress) => {
-    if (!routeData || !routeData.stops) return;
-
-    console.log(`Editing stop at index ${stopIndex} to: ${newAddress}`);
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Create new stops array with updated address
-      const updatedStops = routeData.stops.map((stop, index) => {
-        if (index === stopIndex) {
-          // Replace with new search query
-          return {
-            ...stop,
-            name: newAddress,
-            searchQuery: newAddress,
-            original: newAddress
-          };
-        }
-        return stop;
-      });
-
-      // Recalculate route with updated stops
-      const response = await fetch('/api/route', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stops: updatedStops })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to recalculate route');
-      }
-
-      setRouteData(data.route);
-      setStatusMessage('✓ Stop updated and route recalculated');
-      setTimeout(() => setStatusMessage(null), 3000);
-    } catch (err) {
-      console.error('Error editing stop:', err);
-      setError(err.message || 'Failed to edit stop');
-    } finally {
-      setLoading(false);
-    }
-  }, [routeData]);
 
   return (
     <div className="app">
@@ -305,10 +341,34 @@ function App() {
             </div>
           )}
 
-          {loading && (
-            <div className="loading-message">
-              Processing your voice input...
+          {(loading || addingCoffeeShop || searchingNearby) && (
+            <div className={`loading-message ${searchingNearby ? 'nearby' : ''}`}>
+              {searchingNearby
+                ? 'Finding coffee shops near you...'
+                : addingCoffeeShop
+                ? 'Finding the best coffee shop for your route...'
+                : 'Processing your voice input...'}
             </div>
+          )}
+
+          {/* Nearby coffee shop results card */}
+          {nearbyCoffeeResults.length > 0 && (
+            <NearbyInfoCard
+              shops={nearbyCoffeeResults}
+              selectedShop={selectedNearbyShop}
+              onNavigate={handleNavigateToShop}
+              onDismiss={handleDismissNearby}
+            />
+          )}
+
+          {/* Return to main route button (sidebar) */}
+          {isDetourActive && routeData && (
+            <button className="btn-return-main-route" onClick={handleReturnToMainRoute}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+              </svg>
+              Return to Main Route
+            </button>
           )}
 
           {routeData && <RouteEmailShare route={routeData} />}
@@ -323,6 +383,7 @@ function App() {
           {coffeeShops.length > 0 && (
             <CoffeeShopRecommendations
               shops={coffeeShops}
+              grouped={coffeeShopGroups}
               onShopSelect={handleCoffeeShopSelect}
             />
           )}
@@ -348,6 +409,12 @@ function App() {
             <MapDisplay
               route={routeData}
               onCoffeeShopsFound={handleCoffeeShopsFound}
+              coffeeDetourRoute={coffeeDetourRoute}
+              isDetourActive={isDetourActive}
+              userLocation={userLocation}
+              nearbyCoffeeResults={nearbyCoffeeResults}
+              selectedNearbyShop={selectedNearbyShop}
+              onReturnToMainRoute={handleReturnToMainRoute}
             />
           )}
         </div>

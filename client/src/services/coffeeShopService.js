@@ -31,7 +31,20 @@ export async function searchCoffeeShops(options = {}) {
 
   // Build request body based on search type
   let requestBody;
-  if (route) {
+  if (route && location) {
+    console.log('Search type: Current location + along route');
+    console.log('Route:', route);
+    console.log('Location:', location);
+    requestBody = {
+      route,
+      lat: location.lat,
+      lng: location.lng,
+      radius,
+      limit,
+      sortBy,
+      openNowOnly
+    };
+  } else if (route) {
     console.log('Search type: Along route');
     console.log('Route:', route);
     requestBody = {
@@ -79,7 +92,11 @@ export async function searchCoffeeShops(options = {}) {
     const data = await response.json();
     console.log('Success! Received data:', {
       success: data.success,
+      searchType: data.searchType,
       recommendationsCount: data.recommendations?.length,
+      grouped: data.grouped ? Object.fromEntries(
+        Object.entries(data.grouped).map(([key, value]) => [key, value?.length || 0])
+      ) : null,
       totalFound: data.totalFound
     });
     console.log('=== End Frontend Search ===');

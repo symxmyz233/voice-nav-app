@@ -107,7 +107,16 @@ export function recommendCoffeeShops(
       sorted = withScores.sort((a, b) => (b.rating || 0) - (a.rating || 0));
       break;
     case 'distance':
-      sorted = withScores.sort((a, b) => a.distance - b.distance);
+      sorted = withScores.sort((a, b) => {
+        const distA = isRouteSearch && a.distanceFromRoute !== undefined
+          ? a.distanceFromRoute
+          : (a.distance ?? Number.POSITIVE_INFINITY);
+        const distB = isRouteSearch && b.distanceFromRoute !== undefined
+          ? b.distanceFromRoute
+          : (b.distance ?? Number.POSITIVE_INFINITY);
+        if (distA !== distB) return distA - distB;
+        return (b.rating || 0) - (a.rating || 0);
+      });
       break;
     case 'reviews':
       sorted = withScores.sort((a, b) => (b.reviewCount || 0) - (a.reviewCount || 0));
@@ -129,14 +138,16 @@ export function recommendCoffeeShops(
  * @returns {Object} - Formatted shop object
  */
 export function formatShopForDisplay(shop) {
+  const distanceValue = shop.distanceFromRoute !== undefined ? shop.distanceFromRoute : shop.distance;
+  const hasDistanceValue = distanceValue !== undefined && distanceValue !== null;
   const formatted = {
     placeId: shop.placeId,
     name: shop.name,
     location: shop.location,
     rating: shop.rating,
     reviewCount: shop.reviewCount,
-    distance: shop.distance ? `${Math.round(shop.distance / 100) / 10}km` : 'N/A',
-    distanceValue: shop.distance,
+    distance: hasDistanceValue ? `${Math.round(distanceValue / 100) / 10}km` : 'N/A',
+    distanceValue,
     address: shop.address,
     vicinity: shop.vicinity,
     openNow: shop.openNow,

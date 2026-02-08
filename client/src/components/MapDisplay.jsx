@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { GoogleMap, Marker, Polyline } from '@react-google-maps/api';
 import { searchCoffeeShops } from '../services/coffeeShopService.js';
+import { getCurrentPosition } from '../services/geolocationService.js';
 
 const mapContainerStyle = {
   width: '100%',
@@ -26,7 +27,7 @@ const polylineOptions = {
   strokeWeight: 5
 };
 
-function MapDisplay({ route, onCoffeeShopsFound }) {
+function MapDisplay({ route, onCoffeeShopsFound, userLocation }) {
   const [map, setMap] = useState(null);
   const [decodedPath, setDecodedPath] = useState([]);
   const [coffeeShops, setCoffeeShops] = useState([]);
@@ -158,8 +159,18 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
     try {
       // If we have a route, search along the route. Otherwise, use map center
       let searchOptions;
+      let resolvedLocation = userLocation;
 
       if (route && route.stops && route.stops.length >= 2) {
+        if (!resolvedLocation) {
+          try {
+            resolvedLocation = await getCurrentPosition();
+            console.log(`Resolved user location: (${resolvedLocation.lat.toFixed(4)}, ${resolvedLocation.lng.toFixed(4)})`);
+          } catch (err) {
+            console.warn('Could not resolve user location for combined search:', err.message);
+          }
+        }
+
         // Search along the route
         const origin = route.stops[0];
         const destination = route.stops[route.stops.length - 1];
@@ -176,6 +187,7 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
             destination: { lat: destination.lat, lng: destination.lng, name: destination.name },
             waypoints: waypoints.map(wp => ({ lat: wp.lat, lng: wp.lng, name: wp.name }))
           },
+          ...(resolvedLocation ? { location: resolvedLocation } : {}),
           radius: 5000,
           limit: 10,
           sortBy: 'score'
@@ -201,13 +213,13 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
       console.log('Search result:', result);
 
       if (result.recommendations && result.recommendations.length > 0) {
-        console.log(`✅ Found ${result.recommendations.length} recommendations`);
+        console.log(`Found ${result.recommendations.length} recommendations`);
         setCoffeeShops(result.recommendations);
         if (onCoffeeShopsFound) {
-          onCoffeeShopsFound(result.recommendations);
+          onCoffeeShopsFound(result.recommendations, result.grouped || null);
         }
       } else {
-        console.log('⚠️ No coffee shops found in this area');
+        console.log('No coffee shops found in this area');
         setError('No coffee shops found in this area');
         setCoffeeShops([]);
       }
@@ -235,7 +247,7 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
       setLoading(false);
       console.log('=== End Coffee Shop Search ===');
     }
-  }, [map, route, onCoffeeShopsFound]);
+  }, [map, route, onCoffeeShopsFound, userLocation]);
 
   return (
     <div className="map-display-container">

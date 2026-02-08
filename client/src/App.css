@@ -682,6 +682,69 @@ body {
   cursor: not-allowed;
 }
 
+/* Return to Main Route button (sidebar) */
+.btn-return-main-route {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 16px;
+  background-color: #8B4513;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 4px rgba(139, 69, 19, 0.3);
+}
+
+.btn-return-main-route:hover {
+  background-color: #A0522D;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(139, 69, 19, 0.4);
+}
+
+.btn-return-main-route:active {
+  transform: translateY(0);
+}
+
+/* Return to Main Route button (map overlay) */
+.btn-return-route {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background-color: #8B4513;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(139, 69, 19, 0.3);
+  white-space: nowrap;
+}
+
+.btn-return-route:hover {
+  background-color: #A0522D;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(139, 69, 19, 0.4);
+}
+
+.btn-return-route:active {
+  transform: translateY(0);
+}
+
+/* Searching nearby loading message */
+.loading-message.nearby {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
 /* Responsive */
 @media (max-width: 900px) {
   .app-main {
