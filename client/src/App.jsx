@@ -3,6 +3,7 @@ import { useJsApiLoader } from '@react-google-maps/api';
 import VoiceRecorder from './components/VoiceRecorder';
 import MapDisplay from './components/MapDisplay';
 import RouteInfo from './components/RouteInfo';
+import RouteEmailShare from './components/RouteEmailShare';
 import CoffeeShopRecommendations from './components/CoffeeShopRecommendations';
 import VoiceBufferList from './components/VoiceBufferList';
 import AddressConfirmation from './components/AddressConfirmation';
@@ -113,6 +114,35 @@ function App() {
     // Clear status message after 3 seconds
     setTimeout(() => setStatusMessage(null), 3000);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateRouteFromServerCache = async () => {
+      try {
+        const response = await fetch('/api/last-route');
+        if (!response.ok) return;
+
+        const data = await response.json();
+        if (!cancelled && data?.success && data?.route) {
+          // Use the same pipeline as voice input result.
+          applyRouteResult(data);
+        }
+      } catch {
+        // Best effort only; ignore cache hydration failure.
+      }
+    };
+
+    hydrateRouteFromServerCache();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applyRouteResult]);
+
+  const handleVoiceResult = useCallback((data) => {
+    applyRouteResult(data);
+  }, [applyRouteResult]);
 
   const handleError = useCallback((errorMessage) => {
     setError(errorMessage);
