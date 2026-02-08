@@ -48,7 +48,8 @@ Return ONLY a valid JSON object in this exact format, with no additional text:
         "businessName": "<business name> or null"
       },
       "searchQuery": "optimized string for Google Maps geocoding",
-      "confidence": 0.0 to 1.0
+      "confidence": 0.0 to 1.0,
+      "via": false
     }
   ],
 
@@ -70,8 +71,9 @@ User says "downtown Edison" → type="landmark", landmark="downtown" ❌ (should
 }
 
 Command Type Guidelines:
-- "new_route": User is specifying a completely new route from scratch (e.g., "Navigate from A to B", "Go from X to Y")
-  * ONLY use this if the user explicitly says "navigate", "go from", "route from", etc. with BOTH start and end locations
+- "new_route": User is specifying a completely new route from scratch
+  * Use for BOTH multi-stop ("Navigate from A to B") AND single-destination ("Go to X", "Take me to X", "Directions to X")
+  * If only ONE destination is mentioned, extract ONLY that single stop. Do NOT invent or guess a starting location.
 - "add_stop": User wants to add a stop to existing route WITHOUT specifying position (e.g., "Add a stop at C", "Stop at C", "I want to go to C")
   * ⚠️ CRITICAL: Extract ONLY ONE stop - the location being added. DO NOT extract existing route locations.
 - "insert_stop": User wants to insert a stop at a SPECIFIC position (e.g., "Add C between A and B", "Insert C after A", "Put C before B")
@@ -121,6 +123,15 @@ Location Guidelines:
   * If streetNumber AND streetName are null, prioritize businessName in searchQuery
 - If unsure about a component, leave it null
 - Confidence scale: 1.0 = certain, 0.7 = fairly confident, 0.5 = ambiguous, 0.3 = guessing
+
+Via / Pass-Through Waypoint Guidelines:
+- If the user says "via X", "through X", "take X", "use X", or "go over X"
+  for an intermediate location, set "via": true for that stop.
+- Common via examples: bridges, tunnels, highways, specific roads
+  (e.g., "via I-95", "through the Lincoln Tunnel", "take the GW Bridge").
+- The FIRST stop (origin) and LAST stop (final destination) must NEVER be via.
+  Only intermediate stops can be via.
+- Default to via: false if unsure.
 
 If you cannot understand the audio or no locations are mentioned, return:
 {"stops": [], "commandType": "error", "error": "Could not extract locations from audio"}`;

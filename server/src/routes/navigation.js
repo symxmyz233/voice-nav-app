@@ -263,8 +263,38 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
     const commandType = geminiResult.commandType || 'new_route';
 
     if (commandType === 'new_route') {
-      // New route - use stops as-is
       finalStops = geminiResult.stops;
+
+      // Single-destination command (e.g. "Go to Times Square") — prepend current location
+      if (finalStops.length === 1) {
+        if (userLocation) {
+          const currentLocationStop = {
+            original: 'Current Location',
+            type: 'current_location',
+            parsed: {
+              streetNumber: null,
+              streetName: null,
+              city: null,
+              state: null,
+              country: null,
+              postalCode: null,
+              landmark: null,
+              businessName: null
+            },
+            searchQuery: `${userLocation.lat},${userLocation.lng}`,
+            confidence: 1.0,
+            lat: userLocation.lat,
+            lng: userLocation.lng
+          };
+          finalStops = [currentLocationStop, ...finalStops];
+          console.log('Single-destination command — prepended current location as origin');
+        } else {
+          return res.status(400).json({
+            error: 'Single-destination commands require location access. Please enable location services or specify both a start and destination (e.g. "Navigate from A to B").'
+          });
+        }
+      }
+
       console.log('Creating new route with', finalStops.length, 'stops');
     } else if (commandType === 'add_stop' || commandType === 'insert_stop') {
       // Modify existing route
@@ -434,6 +464,10 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
         });
       }
     }
+
+    // Origin and destination can never be via
+    if (finalStops.length > 0) finalStops[0].via = false;
+    if (finalStops.length > 1) finalStops[finalStops.length - 1].via = false;
 
     console.log('Final stops array:', finalStops.map(s => s.original || s.searchQuery));
 

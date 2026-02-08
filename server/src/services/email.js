@@ -92,7 +92,10 @@ export function buildGoogleMapsDirectionsLink(route) {
   const stopLabels = getRouteStops(route);
   const origin = stopLabels[0];
   const destination = stopLabels[stopLabels.length - 1];
-  const waypoints = stopLabels.slice(1, -1);
+  const waypoints = (route.stops || []).slice(1, -1).map((stop, i) => {
+    const label = stopLabels[i + 1];
+    return stop.via ? `via:${label}` : label;
+  });
 
   const params = new URLSearchParams({
     api: '1',

@@ -1,9 +1,22 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 
 function RouteInfo({ route, onRemoveStop, onEditStop }) {
   const [expandedLeg, setExpandedLeg] = useState(null);
   const [editingStop, setEditingStop] = useState(null);
   const [editValue, setEditValue] = useState('');
+
+  const stopLetters = useMemo(() => {
+    if (!route?.stops) return [];
+    let letterIdx = 0;
+    return route.stops.map(stop =>
+      stop.via ? null : String.fromCharCode(65 + letterIdx++)
+    );
+  }, [route?.stops]);
+
+  const legLabels = useMemo(() => {
+    const letters = (stopLetters || []).filter(l => l !== null);
+    return letters.slice(0, -1).map((l, i) => ({ from: l, to: letters[i + 1] }));
+  }, [stopLetters]);
 
   if (!route) return null;
 
@@ -28,7 +41,8 @@ function RouteInfo({ route, onRemoveStop, onEditStop }) {
       'full_address': 'Address',
       'landmark': 'Landmark',
       'partial': 'Partial',
-      'relative': 'Relative'
+      'relative': 'Relative',
+      'current_location': 'GPS'
     };
     return labels[type] || type;
   };
@@ -90,8 +104,8 @@ function RouteInfo({ route, onRemoveStop, onEditStop }) {
         <h3>Stops ({Array.isArray(route.stops) ? route.stops.length : 0})</h3>
         {Array.isArray(route.stops) && route.stops.map((stop, index) => (
           <div key={`stop-${index}`} className="stop-item">
-            <div className={`stop-marker ${getStopType(index, route.stops.length)}`}>
-              {String.fromCharCode(65 + index)}
+            <div className={`stop-marker ${stop.via ? 'via' : getStopType(index, route.stops.length)}`}>
+              {stopLetters[index] || '~'}
             </div>
             <div className="stop-details">
               {editingStop === index ? (
@@ -133,8 +147,20 @@ function RouteInfo({ route, onRemoveStop, onEditStop }) {
                 <>
                   <div className="stop-header-row">
                     <div className="stop-name">
-                      {getStopLabel(index, route.stops.length)}: {stop.name}
-                      {stop.type && (
+                      {stop.via ? 'Via' : getStopLabel(index, route.stops.length)}: {stop.name}
+                      {stop.via && (
+                        <span className="address-type-badge" style={{
+                          marginLeft: '8px',
+                          fontSize: '0.7rem',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: '#8b5cf6',
+                          color: '#ffffff'
+                        }}>
+                          VIA
+                        </span>
+                      )}
+                      {stop.type && !stop.via && (
                         <span className="address-type-badge" style={{
                           marginLeft: '8px',
                           fontSize: '0.7rem',
@@ -147,24 +173,26 @@ function RouteInfo({ route, onRemoveStop, onEditStop }) {
                         </span>
                       )}
                     </div>
-                    <div className="stop-actions">
-                      <button
-                        className="btn-edit-stop"
-                        onClick={() => handleStartEdit(index, stop.name)}
-                        title="Edit address"
-                      >
-                        ✏️
-                      </button>
-                      {route.stops.length > 2 && (
+                    {stop.type !== 'current_location' && !stop.via && (
+                      <div className="stop-actions">
                         <button
-                          className="btn-remove-stop"
-                          onClick={() => handleRemove(index)}
-                          title="Remove stop"
+                          className="btn-edit-stop"
+                          onClick={() => handleStartEdit(index, stop.name)}
+                          title="Edit address"
                         >
-                          🗑️
+                          ✏️
                         </button>
-                      )}
-                    </div>
+                        {route.stops.length > 2 && (
+                          <button
+                            className="btn-remove-stop"
+                            onClick={() => handleRemove(index)}
+                            title="Remove stop"
+                          >
+                            🗑️
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="stop-address">{stop.formattedAddress}</div>
                   {stop.confidence && (
@@ -194,7 +222,7 @@ function RouteInfo({ route, onRemoveStop, onEditStop }) {
             >
               <div className="leg-header">
                 <span className="leg-route">
-                  {String.fromCharCode(65 + index)} → {String.fromCharCode(66 + index)}
+                  {legLabels[index]?.from || String.fromCharCode(65 + index)} → {legLabels[index]?.to || String.fromCharCode(66 + index)}
                 </span>
                 <span className="leg-stats">
                   {leg.distance?.text} • {leg.duration?.text}

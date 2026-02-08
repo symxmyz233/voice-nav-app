@@ -893,6 +893,21 @@ function normalizeDirectionsResponse(data) {
 }
 
 /**
+ * Compute the initial bearing (compass heading 0-360°) from point 1 to point 2.
+ * Used to tell the Routes API which direction of traffic flow to snap to
+ * at via waypoints (e.g., eastbound vs westbound on a bridge).
+ */
+function computeBearing(lat1, lng1, lat2, lng2) {
+  const toRad = (deg) => deg * Math.PI / 180;
+  const toDeg = (rad) => rad * 180 / Math.PI;
+  const φ1 = toRad(lat1), φ2 = toRad(lat2);
+  const Δλ = toRad(lng2 - lng1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+/**
  * Get route via the newer Routes API (routes.googleapis.com)
  * Uses already-geocoded lat/lng so no double-geocoding occurs.
  */
@@ -914,7 +929,26 @@ async function getRouteViaRoutesApi(geocodedStops) {
   };
 
   if (geocodedStops.length > 2) {
-    body.intermediates = geocodedStops.slice(1, -1).map(toWaypoint);
+    body.intermediates = geocodedStops.slice(1, -1).map(stop => {
+      if (stop.via) {
+        // Use lat/lng with heading for via waypoints.
+        // Heading = origin→destination bearing, tells the API which direction
+        // of traffic flow to snap to (e.g., eastbound vs westbound on a bridge).
+        const origin = geocodedStops[0];
+        const dest = geocodedStops[geocodedStops.length - 1];
+        const heading = Math.round(computeBearing(origin.lat, origin.lng, dest.lat, dest.lng));
+        const wp = {
+          location: {
+            latLng: { latitude: stop.lat, longitude: stop.lng },
+            heading: heading
+          },
+          via: true
+        };
+        console.log(`📍 Via waypoint at (${stop.lat}, ${stop.lng}) with heading ${heading}°`);
+        return wp;
+      }
+      return toWaypoint(stop);
+    });
   }
 
   console.log('Routes API request body:', JSON.stringify(body, null, 2));
@@ -977,6 +1011,13 @@ function parseDurationString(durationStr) {
 function normalizeRoutesResponse(data, geocodedStops) {
   const route = data.routes[0];
 
+  // Via waypoints don't create legs — build boundary indices from non-via stops
+  const legBoundaryIndices = [0];
+  for (let i = 1; i < geocodedStops.length - 1; i++) {
+    if (!geocodedStops[i].via) legBoundaryIndices.push(i);
+  }
+  legBoundaryIndices.push(geocodedStops.length - 1);
+
   const legs = route.legs.map((leg, index) => {
     const distanceMeters = leg.distanceMeters || 0;
     const durationSeconds = parseDurationString(leg.duration);
@@ -1004,8 +1045,8 @@ function normalizeRoutesResponse(data, geocodedStops) {
     });
 
     return {
-      startAddress: geocodedStops[index]?.formattedAddress || '',
-      endAddress: geocodedStops[index + 1]?.formattedAddress || '',
+      startAddress: geocodedStops[legBoundaryIndices[index]]?.formattedAddress || '',
+      endAddress: geocodedStops[legBoundaryIndices[index + 1]]?.formattedAddress || '',
       distance: {
         value: distanceMeters,
         text: distanceText
@@ -1106,6 +1147,7 @@ export async function getMultiStopRoute(stops, routeContext = null) {
       if (typeof stop === 'object' && stop.lat !== undefined && stop.lng !== undefined) {
         console.log(`Using existing geocoded location for: "${stop.name || stop.original}"`);
         const existingStop = normalizeStopForConfirmation(stop);
+        existingStop.via = Boolean(stop.via);
         geocodedStops.push(existingStop);
         previousLocation = { lat: existingStop.lat, lng: existingStop.lng };
         continue;
@@ -1139,6 +1181,7 @@ export async function getMultiStopRoute(stops, routeContext = null) {
       const geocodedStop = {
         name: typeof stop === 'string' ? stop : (stop.original || stop.searchQuery),
         ...result,
+        via: Boolean(stop.via),
         confidence: typeof result.confidence === 'number'
           ? result.confidence
           : (typeof stop === 'object' && typeof stop.confidence === 'number' ? stop.confidence : 1)
@@ -1197,7 +1240,17 @@ export async function getMultiStopRoute(stops, routeContext = null) {
       };
       const origin = getDirectionsQuery(stops[0]);
       const destination = getDirectionsQuery(stops[stops.length - 1]);
-      const waypoints = stops.slice(1, -1).map(getDirectionsQuery);
+      const waypoints = stops.slice(1, -1).map((stop, i) => {
+        const geocoded = geocodedStops[i + 1];
+        if (geocoded?.via) {
+          // Prefer place_id for via waypoints — better road-snapping for bridges/tunnels
+          if (geocoded.placeId) {
+            return `via:place_id:${geocoded.placeId}`;
+          }
+          return `via:${getDirectionsQuery(stop)}`;
+        }
+        return getDirectionsQuery(stop);
+      });
       const data = await getRouteViaDirectionsApi(origin, destination, waypoints);
       normalized = normalizeDirectionsResponse(data);
     }
