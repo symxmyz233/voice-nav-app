@@ -64,7 +64,98 @@ function buildGeocodingQuery(stopInfo) {
 }
 
 /**
- * Geocode a location to coordinates
+ * Validate and geocode an address using Google's Address Validation API.
+ * Falls back to Geocoding API for landmarks or when validation fails.
+ * @param {string} query - Address string to validate
+ * @returns {Promise<Object|null>} - Validated location or null if validation can't handle it
+ */
+async function validateAddress(query) {
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+
+  const response = await fetch(
+    `https://addressvalidation.googleapis.com/v1:validateAddress?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        address: {
+          regionCode: 'US',
+          addressLines: [query]
+        }
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.warn(`Address Validation API error (${response.status}): ${errorText}`);
+    return null;
+  }
+
+  const data = await response.json();
+  const result = data.result;
+
+  if (!result?.geocode?.location) {
+    console.warn(`Address Validation returned no geocode for: "${query}"`);
+    return null;
+  }
+
+  const verdict = result.verdict || {};
+
+  if (verdict.hasUnconfirmedComponents) {
+    console.warn(`Address has unconfirmed components: "${query}"`);
+  }
+  if (!verdict.addressComplete) {
+    console.warn(`Address is incomplete: "${query}"`);
+  }
+
+  console.log(`Address Validation verdict for "${query}":`, JSON.stringify(verdict));
+
+  return {
+    lat: result.geocode.location.latitude,
+    lng: result.geocode.location.longitude,
+    formattedAddress: result.address?.formattedAddress || query,
+    placeId: result.geocode.placeId || null,
+    validationVerdict: {
+      addressComplete: verdict.addressComplete ?? null,
+      hasUnconfirmedComponents: verdict.hasUnconfirmedComponents ?? false
+    }
+  };
+}
+
+/**
+ * Geocode a location using the legacy Geocoding API (fallback).
+ * @param {string} query - Address or landmark string
+ * @returns {Promise<Object>} - Geocoded location
+ */
+async function geocodeFallback(query) {
+  const response = await mapsClient.geocode({
+    params: {
+      address: query,
+      key: process.env.GOOGLE_MAPS_API_KEY,
+      region: 'us',
+      language: 'en'
+    }
+  });
+
+  if (response.data.results.length === 0) {
+    throw new Error(`Could not geocode location: ${query}`);
+  }
+
+  const result = response.data.results[0];
+
+  return {
+    lat: result.geometry.location.lat,
+    lng: result.geometry.location.lng,
+    formattedAddress: result.formatted_address,
+    placeId: result.place_id
+  };
+}
+
+/**
+ * Geocode a location to coordinates.
+ * Uses Address Validation API for best results, falls back to Geocoding API
+ * for landmarks or when validation can't produce a result.
  * @param {Object|string} stopInfo - Structured stop info or simple address string
  * @returns {Promise<Object>} - Geocoded location with metadata
  */
@@ -75,27 +166,27 @@ export async function geocodeLocation(stopInfo) {
   console.log(`Geocoding [${isStructured ? stopInfo.type : 'legacy'}]: "${query}"`);
 
   try {
-    const response = await mapsClient.geocode({
-      params: {
-        address: query,
-        key: process.env.GOOGLE_MAPS_API_KEY,
-        region: 'us', // Bias towards US results
-        language: 'en'
-      }
-    });
+    // Try Address Validation API first
+    const validated = await validateAddress(query);
 
-    if (response.data.results.length === 0) {
-      throw new Error(`Could not geocode location: ${query}`);
+    if (validated) {
+      console.log(`Address Validation succeeded for: "${query}"`);
+      return {
+        ...validated,
+        ...(isStructured && {
+          type: stopInfo.type,
+          confidence: stopInfo.confidence,
+          original: stopInfo.original
+        })
+      };
     }
 
-    const result = response.data.results[0];
+    // Fall back to Geocoding API (landmarks, partial addresses, etc.)
+    console.log(`Falling back to Geocoding API for: "${query}"`);
+    const geocoded = await geocodeFallback(query);
 
     return {
-      lat: result.geometry.location.lat,
-      lng: result.geometry.location.lng,
-      formattedAddress: result.formatted_address,
-      placeId: result.place_id,
-      // Include metadata from structured input
+      ...geocoded,
       ...(isStructured && {
         type: stopInfo.type,
         confidence: stopInfo.confidence,

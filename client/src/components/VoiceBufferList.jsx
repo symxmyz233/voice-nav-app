@@ -59,6 +59,20 @@ function VoiceBufferList({ onResult, onError, onLoadingChange }) {
     }
   };
 
+  const handleDelete = async (filename) => {
+    if (!window.confirm(`Delete "${filename}"?`)) return;
+    try {
+      const res = await fetch(`/api/voice-buffers/${encodeURIComponent(filename)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete recording');
+      setBuffers((prev) => prev.filter((b) => b.filename !== filename));
+    } catch (err) {
+      onError(err.message || 'Failed to delete recording');
+    }
+  };
+
   const formatSize = (bytes) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -114,6 +128,14 @@ function VoiceBufferList({ onResult, onError, onLoadingChange }) {
                 disabled={sendingFile !== null}
               >
                 {sendingFile === buf.filename ? 'Sending...' : 'Route'}
+              </button>
+              <button
+                className="voice-buffer-delete"
+                onClick={() => handleDelete(buf.filename)}
+                disabled={sendingFile !== null}
+                title="Delete recording"
+              >
+                🗑
               </button>
             </div>
           </div>
