@@ -1,10 +1,11 @@
 import { useState } from 'react';
 
-function RouteEmailShare({ route }) {
+function RouteEmailShare({ route, compact = false }) {
   const [email, setEmail] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [showForm, setShowForm] = useState(false);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -40,6 +41,49 @@ function RouteEmailShare({ route }) {
       setIsSending(false);
     }
   };
+
+  if (compact) {
+    return (
+      <div className="route-email-share route-email-share--compact">
+        <h3 className="compact-title">Send to Phone</h3>
+        <button
+          className="email-icon-button"
+          onClick={() => setShowForm(!showForm)}
+          aria-label="Send route via email"
+        >
+          <svg className="email-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" fill="none" stroke="white" strokeWidth="2"/>
+            <polyline points="22,6 12,13 2,6" fill="none" stroke="white" strokeWidth="2"/>
+          </svg>
+        </button>
+        <p className="compact-hint">{showForm ? 'Tap to close' : 'Tap to email route'}</p>
+        {showForm && (
+          <div className="route-email-compact-form">
+            <form className="route-email-form" onSubmit={handleSubmit}>
+              <input
+                className="route-email-input"
+                type="email"
+                placeholder="name@example.com"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+                disabled={isSending}
+              />
+              <button
+                className="route-email-button"
+                type="submit"
+                disabled={isSending || !route}
+              >
+                {isSending ? 'Sending...' : 'Send'}
+              </button>
+            </form>
+            {successMessage && <p className="route-email-success">{successMessage}</p>}
+            {errorMessage && <p className="route-email-error">{errorMessage}</p>}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div id="route-email-share-card" className="route-email-share">

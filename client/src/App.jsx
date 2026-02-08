@@ -225,9 +225,11 @@ function App() {
       // Create new stops array with updated address
       const updatedStops = routeData.stops.map((stop, index) => {
         if (index === stopIndex) {
-          // Replace with new search query
+          // Replace with new search query and remove old coordinates
+          // so the server re-geocodes the new address
+          const { lat, lng, formattedAddress, placeId, ...rest } = stop;
           return {
-            ...stop,
+            ...rest,
             name: newAddress,
             searchQuery: newAddress,
             original: newAddress
@@ -278,13 +280,27 @@ function App() {
 
       <main className="app-main">
         <div className="control-panel">
-          <VoiceRecorder
-            onResult={handleVoiceResult}
-            onError={handleError}
-            onLoadingChange={handleLoadingChange}
-            currentRoute={routeData}
-            userLocation={userLocation}
-          />
+          {routeData ? (
+            <div className="voice-email-row">
+              <VoiceRecorder
+                onResult={handleVoiceResult}
+                onError={handleError}
+                onLoadingChange={handleLoadingChange}
+                currentRoute={routeData}
+                userLocation={userLocation}
+                compact
+              />
+              <RouteEmailShare route={routeData} compact />
+            </div>
+          ) : (
+            <VoiceRecorder
+              onResult={handleVoiceResult}
+              onError={handleError}
+              onLoadingChange={handleLoadingChange}
+              currentRoute={routeData}
+              userLocation={userLocation}
+            />
+          )}
 
           {statusMessage && (
             <div className="success-message" style={{
@@ -310,8 +326,6 @@ function App() {
               Processing your voice input...
             </div>
           )}
-
-          {routeData && <RouteEmailShare route={routeData} />}
           {routeData && (
             <RouteInfo
               route={routeData}

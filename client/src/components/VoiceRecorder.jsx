@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 
-function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null, userLocation = null }) {
+function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null, userLocation = null, compact = false }) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const mediaRecorderRef = useRef(null);
@@ -120,8 +120,9 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
   };
 
   return (
-    <div className="voice-recorder">
-      <h2>Voice Input</h2>
+    <div className={`voice-recorder${compact ? ' voice-recorder--compact' : ''}`}>
+      {!compact && <h2>Voice Input</h2>}
+      {compact && <h3 className="compact-title">Voice Input</h3>}
 
       <button
         className={`record-button ${isRecording ? 'recording' : ''}`}
@@ -143,19 +144,21 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
         </svg>
       </button>
 
-      <p className={`record-status ${isRecording ? 'recording' : ''}`}>
+      <p className={`record-status ${isRecording ? 'recording' : ''}${compact ? ' compact-hint' : ''}`}>
         {isProcessing
           ? 'Processing...'
           : isRecording
-          ? 'Recording... Click to stop'
-          : 'Click to start recording'}
+          ? 'Click to stop'
+          : 'Tap to record'}
       </p>
 
-      <p style={{ fontSize: '0.8rem', color: '#9ca3af', marginTop: '10px' }}>
-        {currentRoute
-          ? 'Examples: "Add a stop at Times Square" or "Add Starbucks between stop 1 and 2"'
-          : 'Example: "Navigate from San Francisco to Los Angeles with a stop in San Jose"'}
-      </p>
+      {!compact && (
+        <p style={{ fontSize: '0.8rem', color: '#9ca3af', marginTop: '10px' }}>
+          {currentRoute
+            ? 'Examples: "Add a stop at Times Square" or "Add Starbucks between stop 1 and 2"'
+            : 'Example: "Navigate from San Francisco to Los Angeles with a stop in San Jose"'}
+        </p>
+      )}
     </div>
   );
 }

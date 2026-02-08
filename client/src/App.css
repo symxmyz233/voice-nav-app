@@ -682,6 +682,87 @@ body {
   cursor: not-allowed;
 }
 
+/* Compact row: voice + email cards side-by-side */
+.voice-email-row {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+
+/* Shared compact card title */
+.compact-title {
+  font-size: 0.85rem;
+  color: #374151;
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+
+/* Shared compact hint text */
+.compact-hint {
+  font-size: 0.72rem;
+  color: #9ca3af;
+  margin-top: 6px;
+}
+
+/* Compact voice recorder: own visible card */
+.voice-recorder--compact {
+  background: white;
+  padding: 14px;
+  border-radius: 12px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.voice-recorder--compact .record-button {
+  width: 50px;
+  height: 50px;
+  margin: 0;
+}
+.voice-recorder--compact .mic-icon {
+  width: 24px;
+  height: 24px;
+}
+
+/* Compact email share: own visible card */
+.route-email-share--compact {
+  background: white;
+  padding: 14px;
+  border-radius: 12px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.email-icon-button {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+.email-icon-button:hover {
+  transform: scale(1.05);
+}
+.email-icon-button .email-icon {
+  width: 24px;
+  height: 24px;
+  fill: white;
+}
+.route-email-compact-form {
+  margin-top: 12px;
+  width: 100%;
+}
+
 /* Responsive */
 @media (max-width: 900px) {
   .app-main {
