@@ -70,6 +70,78 @@ async function readRouteCache() {
   }
 }
 
+function normalizeLocationHint(value) {
+  if (!value || typeof value !== 'object') return null;
+
+  const lat = Number(value.lat);
+  const lng = Number(value.lng);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return null;
+  }
+
+  return { lat, lng };
+}
+
+function normalizeStopsForConfirmation(stops = []) {
+  return stops.map((stop) => {
+    if (typeof stop === 'string') {
+      return {
+        name: stop,
+        original: stop,
+        searchQuery: stop,
+        confidence: 1
+      };
+    }
+
+    const fallbackName = stop?.name || stop?.original || stop?.searchQuery || 'Unknown stop';
+    return {
+      ...stop,
+      name: fallbackName,
+      original: stop?.original || fallbackName,
+      searchQuery: stop?.searchQuery || stop?.original || fallbackName,
+      confidence: typeof stop?.confidence === 'number' ? stop.confidence : 1
+    };
+  });
+}
+
+function sanitizeConfirmationStopIndexes(indexes, stopCount) {
+  if (!Array.isArray(indexes)) return [];
+
+  const deduped = [];
+  const seen = new Set();
+
+  indexes.forEach((rawIndex) => {
+    const index = Number(rawIndex);
+    if (!Number.isInteger(index)) return;
+    if (index < 0 || index >= stopCount) return;
+    if (seen.has(index)) return;
+    seen.add(index);
+    deduped.push(index);
+  });
+
+  return deduped;
+}
+
+function findConfirmationStopIndexes(stops = [], confidenceThreshold = null) {
+  const indexes = [];
+
+  stops.forEach((stop, index) => {
+    const needsConfirmation = Boolean(stop?.needsConfirmation);
+    const lowConfidence = (
+      typeof confidenceThreshold === 'number' &&
+      typeof stop?.confidence === 'number' &&
+      stop.confidence < confidenceThreshold
+    );
+
+    if (needsConfirmation || lowConfidence) {
+      indexes.push(index);
+    }
+  });
+
+  return indexes;
+}
+
 // Configure multer for audio file uploads
 const storage = multer.memoryStorage();
 const upload = multer({
@@ -117,11 +189,17 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
     let userLocation = null;
     if (req.body.userLocation) {
       try {
-        userLocation = JSON.parse(req.body.userLocation);
-        console.log('✅ User location provided:', {
-          lat: userLocation.lat,
-          lng: userLocation.lng
-        });
+        const parsedLocation = JSON.parse(req.body.userLocation);
+        userLocation = normalizeLocationHint(parsedLocation);
+
+        if (userLocation) {
+          console.log('✅ User location provided:', {
+            lat: userLocation.lat,
+            lng: userLocation.lng
+          });
+        } else {
+          console.log('⚠️ User location provided but invalid format:', req.body.userLocation);
+        }
       } catch (e) {
         console.log('❌ Failed to parse userLocation:', e.message);
       }
@@ -364,6 +442,7 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
     const lowConfidenceStops = finalStops.filter(stop =>
       stop.confidence !== undefined && stop.confidence < CONFIDENCE_THRESHOLD
     );
+    const lowConfidenceStopIndexes = findConfirmationStopIndexes(finalStops, CONFIDENCE_THRESHOLD);
 
     if (lowConfidenceStops.length > 0) {
       console.log(`⚠️ Found ${lowConfidenceStops.length} stops with low confidence - requesting user confirmation`);
@@ -373,6 +452,7 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
         transcript: geminiResult.transcript || null,
         commandType: geminiResult.commandType || 'new_route',
         stops: finalStops,
+        confirmationStopIndexes: lowConfidenceStopIndexes,
         lowConfidenceStops: lowConfidenceStops.map(s => s.original),
         message: 'Please confirm the detected addresses before proceeding'
       });
@@ -385,7 +465,7 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
     let geocodingContext = null;
 
     // Priority 1: User's current location (most accurate for new routes)
-    if (userLocation && userLocation.lat && userLocation.lng) {
+    if (userLocation) {
       geocodingContext = {
         userLocation: { lat: userLocation.lat, lng: userLocation.lng }
       };
@@ -395,10 +475,14 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
     // Priority 2: Route context for add_stop/insert_stop commands
     if ((commandType === 'add_stop' || commandType === 'insert_stop') && currentRoute?.stops?.length > 0) {
       // Calculate midpoint of current route for better location bias
-      const existingStops = currentRoute.stops.filter(s => s.lat && s.lng);
+      const existingStops = currentRoute.stops.filter((s) => {
+        const lat = Number(s?.lat);
+        const lng = Number(s?.lng);
+        return Number.isFinite(lat) && Number.isFinite(lng);
+      });
       if (existingStops.length > 0) {
-        const avgLat = existingStops.reduce((sum, s) => sum + s.lat, 0) / existingStops.length;
-        const avgLng = existingStops.reduce((sum, s) => sum + s.lng, 0) / existingStops.length;
+        const avgLat = existingStops.reduce((sum, s) => sum + Number(s.lat), 0) / existingStops.length;
+        const avgLng = existingStops.reduce((sum, s) => sum + Number(s.lng), 0) / existingStops.length;
 
         if (!geocodingContext) {
           geocodingContext = {};
@@ -409,7 +493,32 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
       }
     }
 
-    const routeData = await getMultiStopRoute(finalStops, geocodingContext);
+    let routeData;
+    try {
+      routeData = await getMultiStopRoute(finalStops, geocodingContext);
+    } catch (routeError) {
+      if (routeError?.code === 'ADDRESS_CONFIRMATION_REQUIRED') {
+        console.warn('Address confirmation required before route generation');
+        const confirmationStops = normalizeStopsForConfirmation(routeError.confirmationStops || finalStops);
+        const confirmationStopIndexes = sanitizeConfirmationStopIndexes(
+          routeError.confirmationStopIndexes,
+          confirmationStops.length
+        );
+        const fallbackIndexes = findConfirmationStopIndexes(confirmationStops);
+        return res.json({
+          success: true,
+          needsConfirmation: true,
+          transcript: geminiResult.transcript || null,
+          commandType: geminiResult.commandType || 'new_route',
+          stops: confirmationStops,
+          confirmationStopIndexes: confirmationStopIndexes.length > 0
+            ? confirmationStopIndexes
+            : (fallbackIndexes.length > 0 ? fallbackIndexes : confirmationStops.map((_, index) => index)),
+          message: routeError.confirmationReason || 'Please confirm the ambiguous address before continuing'
+        });
+      }
+      throw routeError;
+    }
 
     console.log('\n========== ROUTE CALCULATION COMPLETE ==========');
     console.log('📍 Final route has', routeData.stops?.length || 0, 'stops:');
@@ -458,6 +567,45 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
 });
 
 /**
+ * POST /api/reconfirm-stop
+ * Re-capture a single stop via voice during address confirmation flow
+ */
+router.post('/reconfirm-stop', upload.single('audio'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No audio file provided' });
+    }
+
+    const geminiResult = await extractStopsFromAudio(
+      req.file.buffer,
+      req.file.mimetype,
+      null
+    );
+
+    if (geminiResult.error || !Array.isArray(geminiResult.stops) || geminiResult.stops.length === 0) {
+      return res.status(400).json({
+        error: geminiResult.error || 'No location found in confirmation audio'
+      });
+    }
+
+    if (geminiResult.stops.length > 1) {
+      console.warn(`⚠️ Reconfirm-stop extracted ${geminiResult.stops.length} stops. Using the first one only.`);
+    }
+
+    return res.json({
+      success: true,
+      transcript: geminiResult.transcript || null,
+      stop: geminiResult.stops[0]
+    });
+  } catch (error) {
+    console.error('Error reconfirming stop from voice:', error);
+    return res.status(500).json({
+      error: error.message || 'Failed to reconfirm stop from voice'
+    });
+  }
+});
+
+/**
  * POST /api/route
  * Get route for manually specified stops
  */
@@ -482,7 +630,30 @@ router.post('/route', async (req, res) => {
     }
 
     console.log('🚗 Calculating route...');
-    const routeData = await getMultiStopRoute(stops);
+    let routeData;
+    try {
+      routeData = await getMultiStopRoute(stops);
+    } catch (routeError) {
+      if (routeError?.code === 'ADDRESS_CONFIRMATION_REQUIRED') {
+        console.warn('Address confirmation required before route generation');
+        const confirmationStops = normalizeStopsForConfirmation(routeError.confirmationStops || stops);
+        const confirmationStopIndexes = sanitizeConfirmationStopIndexes(
+          routeError.confirmationStopIndexes,
+          confirmationStops.length
+        );
+        const fallbackIndexes = findConfirmationStopIndexes(confirmationStops);
+        return res.json({
+          success: true,
+          needsConfirmation: true,
+          stops: confirmationStops,
+          confirmationStopIndexes: confirmationStopIndexes.length > 0
+            ? confirmationStopIndexes
+            : (fallbackIndexes.length > 0 ? fallbackIndexes : confirmationStops.map((_, index) => index)),
+          message: routeError.confirmationReason || 'Please confirm the ambiguous address before continuing'
+        });
+      }
+      throw routeError;
+    }
     console.log('✅ Route calculated successfully');
     console.log('======================================\n');
     let cache = null;

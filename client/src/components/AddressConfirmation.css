@@ -93,24 +93,85 @@
   margin-bottom: 8px;
 }
 
-.stop-edit-input {
-  width: 100%;
+.parsed-stop-display {
+  margin-top: 8px;
+  margin-bottom: 10px;
   padding: 10px;
-  border: 2px solid #d1d5db;
   border-radius: 6px;
-  font-size: 0.95rem;
-  transition: border-color 0.2s;
+  background: #f9fafb;
+  border: 1px solid #d1d5db;
 }
 
-.stop-edit-input:focus {
-  outline: none;
-  border-color: #3b82f6;
+.parsed-stop-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.parsed-stop-value {
+  font-size: 0.95rem;
+  color: #111827;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.revoice-section {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.revoice-button {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: white;
+  background: #0284c7;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.revoice-button:hover {
+  background: #0369a1;
+}
+
+.revoice-button.recording {
+  background: #dc2626;
+}
+
+.revoice-button.recording:hover {
+  background: #b91c1c;
+}
+
+.revoice-button:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+.revoice-hint {
+  font-size: 0.75rem;
+  color: #6b7280;
 }
 
 .stop-type-info {
   margin-top: 6px;
   font-size: 0.75rem;
   color: #9ca3af;
+}
+
+.voice-error-message {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 0.85rem;
 }
 
 .confirmation-actions {

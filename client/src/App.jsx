@@ -12,6 +12,33 @@ const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
 const libraries = ['places', 'geometry'];
 
+function getConfirmationStopIndexes(stops = [], preferredIndexes = []) {
+  if (Array.isArray(preferredIndexes) && preferredIndexes.length > 0) {
+    const valid = preferredIndexes
+      .map((index) => Number(index))
+      .filter((index) => Number.isInteger(index) && index >= 0 && index < stops.length);
+    if (valid.length > 0) {
+      return [...new Set(valid)];
+    }
+  }
+
+  const needsConfirmation = stops
+    .map((stop, index) => (stop?.needsConfirmation ? index : -1))
+    .filter((index) => index >= 0);
+  if (needsConfirmation.length > 0) {
+    return needsConfirmation;
+  }
+
+  const lowConfidence = stops
+    .map((stop, index) => (typeof stop?.confidence === 'number' && stop.confidence < 0.9 ? index : -1))
+    .filter((index) => index >= 0);
+  if (lowConfidence.length > 0) {
+    return lowConfidence;
+  }
+
+  return stops.map((_, index) => index);
+}
+
 function App() {
   const [routeData, setRouteData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -54,6 +81,23 @@ function App() {
     libraries,
   });
 
+  const openConfirmationDialog = useCallback((payload, fallback = {}) => {
+    const stops = payload?.stops || fallback.stops || [];
+    const confirmationStopIndexes = getConfirmationStopIndexes(stops, payload?.confirmationStopIndexes);
+
+    setConfirmationData({
+      stops,
+      stopIndexes: confirmationStopIndexes,
+      transcript: payload?.transcript ?? fallback.transcript ?? null,
+      commandType: payload?.commandType || fallback.commandType || 'new_route'
+    });
+
+    if (payload?.message) {
+      setStatusMessage(payload.message);
+      setTimeout(() => setStatusMessage(null), 4000);
+    }
+  }, []);
+
   const handleVoiceResult = useCallback((data) => {
     console.log('\n========== FRONTEND: handleVoiceResult ==========');
     console.log('📝 Transcript:', data.transcript);
@@ -87,8 +131,8 @@ function App() {
 
     // Check if confirmation is needed
     if (data.needsConfirmation) {
-      console.log('⚠️ Low confidence detected - showing confirmation dialog');
-      setConfirmationData({
+      console.log('⚠️ Confirmation required - showing targeted stops');
+      openConfirmationDialog(data, {
         stops: data.stops,
         transcript: data.transcript,
         commandType: data.commandType
@@ -113,7 +157,7 @@ function App() {
 
     // Clear status message after 3 seconds
     setTimeout(() => setStatusMessage(null), 3000);
-  }, []);
+  }, [openConfirmationDialog, routeData]);
 
   const handleError = useCallback((errorMessage) => {
     setError(errorMessage);
@@ -156,6 +200,15 @@ function App() {
         throw new Error(data.error || 'Failed to calculate route');
       }
 
+      if (data.needsConfirmation) {
+        openConfirmationDialog(data, {
+          stops: data.stops || confirmedStops,
+          transcript: data.transcript || null,
+          commandType: data.commandType || 'new_route'
+        });
+        return;
+      }
+
       setRouteData(data.route);
       setStatusMessage('✓ Route created with confirmed addresses');
       setTimeout(() => setStatusMessage(null), 3000);
@@ -164,7 +217,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [openConfirmationDialog]);
 
   const handleCancelConfirmation = useCallback(() => {
     console.log('User cancelled address confirmation');
@@ -203,6 +256,15 @@ function App() {
         throw new Error(data.error || 'Failed to recalculate route');
       }
 
+      if (data.needsConfirmation) {
+        openConfirmationDialog(data, {
+          stops: data.stops || updatedStops,
+          transcript: null,
+          commandType: data.commandType || 'new_route'
+        });
+        return;
+      }
+
       setRouteData(data.route);
       setStatusMessage('✓ Stop removed and route updated');
       setTimeout(() => setStatusMessage(null), 3000);
@@ -212,7 +274,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [routeData]);
+  }, [openConfirmationDialog, routeData]);
 
   const handleEditStop = useCallback(async (stopIndex, newAddress) => {
     if (!routeData || !routeData.stops) return;
@@ -251,6 +313,15 @@ function App() {
         throw new Error(data.error || 'Failed to recalculate route');
       }
 
+      if (data.needsConfirmation) {
+        openConfirmationDialog(data, {
+          stops: data.stops || updatedStops,
+          transcript: null,
+          commandType: data.commandType || 'new_route'
+        });
+        return;
+      }
+
       setRouteData(data.route);
       setStatusMessage('✓ Stop updated and route recalculated');
       setTimeout(() => setStatusMessage(null), 3000);
@@ -260,13 +331,14 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [routeData]);
+  }, [openConfirmationDialog, routeData]);
 
   return (
     <div className="app">
       {confirmationData && (
         <AddressConfirmation
           stops={confirmationData.stops}
+          confirmationStopIndexes={confirmationData.stopIndexes}
           transcript={confirmationData.transcript}
           onConfirm={handleConfirmAddresses}
           onCancel={handleCancelConfirmation}
@@ -344,6 +416,7 @@ function App() {
             onResult={handleVoiceResult}
             onError={handleError}
             onLoadingChange={handleLoadingChange}
+            userLocation={userLocation}
           />
         </div>
 

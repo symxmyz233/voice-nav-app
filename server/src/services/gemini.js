@@ -99,6 +99,18 @@ Location Guidelines:
 - For full addresses with street number and name, parse into components and set type="full_address"
 - For partial addresses (missing city or state), set type="partial"
 - For relative locations like "nearest gas station" or "my house", set type="relative"
+- Address correctness double-check (MUST do this before final JSON):
+  * For any candidate full address, internally verify it is likely real and internally consistent:
+    - street number + street name look plausible
+    - city/state combination is valid
+    - postal code matches city/state when provided
+  * Never invent missing components (street number, ZIP, city, etc.).
+  * If you cannot confidently verify a full address exists, DO NOT keep type="full_address":
+    - downgrade to type="partial"
+    - keep uncertain fields null
+    - keep original spoken text in "original"
+    - reduce confidence to <= 0.6
+  * If only city/area is trustworthy, use that in searchQuery instead of a guessed full address.
 - ⚠️ CRITICAL RULE: If streetNumber AND streetName are both null/empty, you MUST use businessName or landmark as the primary identifier
   * In this case, set type="landmark" and populate businessName field
   * Do NOT use partial address type when there's a clear business name

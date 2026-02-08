@@ -45,10 +45,6 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
       .filter((stop) => Number.isFinite(stop.lat) && Number.isFinite(stop.lng));
   }, [route]);
 
-  const mapCenter = normalizedStops[0]
-    ? { lat: normalizedStops[0].lat, lng: normalizedStops[0].lng }
-    : defaultCenter;
-
   const onLoad = useCallback((map) => {
     setMap(map);
   }, []);
@@ -95,9 +91,12 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
       normalizedStops.forEach((stop) => {
         bounds.extend({ lat: stop.lat, lng: stop.lng });
       });
+      decodedPath.forEach((point) => {
+        bounds.extend(point);
+      });
       map.fitBounds(bounds, { padding: 50 });
     }
-  }, [map, route, normalizedStops]);
+  }, [map, route, normalizedStops, decodedPath]);
 
   const getMarkerLabel = (index, total) => {
     if (index === 0) return 'A';
@@ -241,7 +240,7 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
     <div className="map-display-container">
       <GoogleMap
         mapContainerStyle={mapContainerStyle}
-        center={mapCenter}
+        center={defaultCenter}
         zoom={10}
         onLoad={onLoad}
         onUnmount={onUnmount}

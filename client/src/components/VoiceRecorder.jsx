@@ -6,16 +6,46 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
 
+  const resolveUserLocationHint = useCallback(async () => {
+    const lat = Number(userLocation?.lat);
+    const lng = Number(userLocation?.lng);
+
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return { lat, lng };
+    }
+
+    if (!navigator.geolocation) {
+      return null;
+    }
+
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => resolve({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        }),
+        () => resolve(null),
+        {
+          enableHighAccuracy: false,
+          timeout: 4000,
+          maximumAge: 60_000
+        }
+      );
+    });
+  }, [userLocation]);
+
   const sendAudioToBackend = useCallback(async (audioBlob) => {
     setIsProcessing(true);
     onLoadingChange(true);
+
+    const locationHint = await resolveUserLocationHint();
 
     console.log('🎤 Sending audio to backend with context:', {
       hasCurrentRoute: !!currentRoute,
       stopsCount: currentRoute?.stops?.length || 0,
       stopNames: currentRoute?.stops?.map(s => s.name || s.address).join(' → ') || 'none',
-      hasUserLocation: !!userLocation,
-      userLocation: userLocation ? `${userLocation.lat}, ${userLocation.lng}` : 'none'
+      hasUserLocation: !!locationHint,
+      userLocation: locationHint ? `${locationHint.lat}, ${locationHint.lng}` : 'none'
     });
 
     try {
@@ -31,9 +61,9 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
       }
 
       // Include user location if available
-      if (userLocation) {
-        formData.append('userLocation', JSON.stringify(userLocation));
-        console.log('✅ User location added to FormData:', userLocation);
+      if (locationHint) {
+        formData.append('userLocation', JSON.stringify(locationHint));
+        console.log('✅ User location added to FormData:', locationHint);
       }
 
       const response = await fetch('/api/process-voice', {
@@ -67,7 +97,7 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
       setIsProcessing(false);
       onLoadingChange(false);
     }
-  }, [currentRoute, userLocation, onLoadingChange, onResult, onError]);
+  }, [currentRoute, onLoadingChange, onResult, onError, resolveUserLocationHint]);
 
   const startRecording = useCallback(async () => {
     try {
