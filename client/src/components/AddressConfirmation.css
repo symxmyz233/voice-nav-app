@@ -1,0 +1,231 @@
+.address-confirmation-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.address-confirmation-dialog {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 600px;
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.address-confirmation-dialog h3 {
+  margin: 0 0 16px 0;
+  color: #ef4444;
+  font-size: 1.25rem;
+}
+
+.transcript-display {
+  background: #f3f4f6;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+}
+
+.transcript-display strong {
+  color: #374151;
+}
+
+.confirmation-message {
+  margin: 0 0 20px 0;
+  color: #6b7280;
+  font-size: 0.95rem;
+}
+
+.stops-confirmation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stop-confirmation-item {
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.stop-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.stop-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: #3b82f6;
+  color: white;
+  border-radius: 50%;
+  font-size: 0.85rem;
+  font-weight: bold;
+}
+
+.confidence-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.stop-original {
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.stop-edit-input {
+  width: 100%;
+  padding: 10px;
+  border: 2px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  transition: border-color 0.2s;
+}
+
+.stop-edit-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.stop-type-info {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
+
+.confirmation-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.btn-cancel,
+.btn-confirm {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-cancel {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.btn-cancel:hover {
+  background: #d1d5db;
+}
+
+.btn-confirm {
+  background: #3b82f6;
+  color: white;
+}
+
+.btn-confirm:hover {
+  background: #2563eb;
+}
+
+/* Alternative geocoding results */
+.alternatives-section {
+  margin-top: 12px;
+  padding: 12px;
+  background: #fef3c7;
+  border: 2px solid #fbbf24;
+  border-radius: 8px;
+}
+
+.alternatives-header {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #92400e;
+  margin-bottom: 10px;
+}
+
+.alternatives-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.alternative-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border: 2px solid #d1d5db;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.alternative-option:hover {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.alternative-option.selected {
+  border-color: #3b82f6;
+  background: #dbeafe;
+}
+
+.alternative-option input[type="radio"] {
+  margin-top: 4px;
+  cursor: pointer;
+}
+
+.alternative-details {
+  flex: 1;
+}
+
+.alternative-source {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #3b82f6;
+  margin-bottom: 4px;
+}
+
+.alternative-address {
+  font-size: 0.9rem;
+  color: #1f2937;
+  margin-bottom: 4px;
+}
+
+.alternative-coords {
+  font-size: 0.75rem;
+  color: #6b7280;
+  font-family: monospace;
+}
+
+.distance-warning {
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: #fef3c7;
+  border-left: 3px solid #f59e0b;
+  font-size: 0.7rem;
+  color: #92400e;
+  border-radius: 3px;
+}

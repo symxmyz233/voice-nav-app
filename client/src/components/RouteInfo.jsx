@@ -1,7 +1,9 @@
 import { useState } from 'react';
 
-function RouteInfo({ route }) {
+function RouteInfo({ route, onRemoveStop, onEditStop }) {
   const [expandedLeg, setExpandedLeg] = useState(null);
+  const [editingStop, setEditingStop] = useState(null);
+  const [editValue, setEditValue] = useState('');
 
   if (!route) return null;
 
@@ -38,6 +40,30 @@ function RouteInfo({ route }) {
     return '#ef4444';
   };
 
+  const handleStartEdit = (index, currentName) => {
+    setEditingStop(index);
+    setEditValue(currentName);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingStop(null);
+    setEditValue('');
+  };
+
+  const handleSaveEdit = (index) => {
+    if (editValue.trim() && onEditStop) {
+      onEditStop(index, editValue.trim());
+    }
+    setEditingStop(null);
+    setEditValue('');
+  };
+
+  const handleRemove = (index) => {
+    if (onRemoveStop) {
+      onRemoveStop(index);
+    }
+  };
+
   return (
     <div className="route-info">
       <h2>
@@ -68,30 +94,89 @@ function RouteInfo({ route }) {
               {String.fromCharCode(65 + index)}
             </div>
             <div className="stop-details">
-              <div className="stop-name">
-                {getStopLabel(index, route.stops.length)}: {stop.name}
-                {stop.type && (
-                  <span className="address-type-badge" style={{
-                    marginLeft: '8px',
-                    fontSize: '0.7rem',
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    backgroundColor: '#e5e7eb',
-                    color: '#4b5563'
-                  }}>
-                    {getAddressTypeLabel(stop.type)}
-                  </span>
-                )}
-              </div>
-              <div className="stop-address">{stop.formattedAddress}</div>
-              {stop.confidence && (
-                <div className="stop-confidence" style={{
-                  fontSize: '0.75rem',
-                  color: getConfidenceColor(stop.confidence),
-                  marginTop: '2px'
-                }}>
-                  Confidence: {Math.round(stop.confidence * 100)}%
+              {editingStop === index ? (
+                // Edit mode
+                <div className="stop-edit-mode">
+                  <input
+                    type="text"
+                    className="stop-edit-input"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleSaveEdit(index);
+                      } else if (e.key === 'Escape') {
+                        handleCancelEdit();
+                      }
+                    }}
+                    autoFocus
+                  />
+                  <div className="stop-edit-actions">
+                    <button
+                      className="btn-save-edit"
+                      onClick={() => handleSaveEdit(index)}
+                      title="Save"
+                    >
+                      ✓
+                    </button>
+                    <button
+                      className="btn-cancel-edit"
+                      onClick={handleCancelEdit}
+                      title="Cancel"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
+              ) : (
+                // View mode
+                <>
+                  <div className="stop-header-row">
+                    <div className="stop-name">
+                      {getStopLabel(index, route.stops.length)}: {stop.name}
+                      {stop.type && (
+                        <span className="address-type-badge" style={{
+                          marginLeft: '8px',
+                          fontSize: '0.7rem',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: '#e5e7eb',
+                          color: '#4b5563'
+                        }}>
+                          {getAddressTypeLabel(stop.type)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="stop-actions">
+                      <button
+                        className="btn-edit-stop"
+                        onClick={() => handleStartEdit(index, stop.name)}
+                        title="Edit address"
+                      >
+                        ✏️
+                      </button>
+                      {route.stops.length > 2 && (
+                        <button
+                          className="btn-remove-stop"
+                          onClick={() => handleRemove(index)}
+                          title="Remove stop"
+                        >
+                          🗑️
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="stop-address">{stop.formattedAddress}</div>
+                  {stop.confidence && (
+                    <div className="stop-confidence" style={{
+                      fontSize: '0.75rem',
+                      color: getConfidenceColor(stop.confidence),
+                      marginTop: '2px'
+                    }}>
+                      Confidence: {Math.round(stop.confidence * 100)}%
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>

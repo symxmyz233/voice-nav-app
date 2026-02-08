@@ -1,8 +1,15 @@
 .env
 .env.local
+.env.save
 *.env
+*.env.backup
 node_modules/
 .DS_Store
 dist/
 build/
-.env
+
+# Voice buffer audio files (temporary recordings)
+server/voice_buffer/
+
+# Route cache (temporary data)
+server/route_cache.json
