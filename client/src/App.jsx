@@ -16,24 +16,45 @@ function App() {
   const [error, setError] = useState(null);
   const [coffeeShops, setCoffeeShops] = useState([]);
 
-  useEffect(() => {
-    fetch('/api/last-route')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.route) setRouteData(data.route);
-      })
-      .catch(() => {});
-  }, []);
-
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: GOOGLE_MAPS_API_KEY,
     libraries,
   });
 
-  const handleVoiceResult = useCallback((data) => {
+  const applyRouteResult = useCallback((data) => {
+    if (!data?.route) return;
     setRouteData(data.route);
     setError(null);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateRouteFromServerCache = async () => {
+      try {
+        const response = await fetch('/api/last-route');
+        if (!response.ok) return;
+
+        const data = await response.json();
+        if (!cancelled && data?.success && data?.route) {
+          // Use the same pipeline as voice input result.
+          applyRouteResult(data);
+        }
+      } catch {
+        // Best effort only; ignore cache hydration failure.
+      }
+    };
+
+    hydrateRouteFromServerCache();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applyRouteResult]);
+
+  const handleVoiceResult = useCallback((data) => {
+    applyRouteResult(data);
+  }, [applyRouteResult]);
 
   const handleError = useCallback((errorMessage) => {
     setError(errorMessage);

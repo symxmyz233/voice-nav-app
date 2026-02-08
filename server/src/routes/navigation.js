@@ -12,8 +12,62 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const VOICE_BUFFER_DIR = path.resolve(__dirname, '../../voice_buffer');
 const ROUTE_CACHE_PATH = path.resolve(__dirname, '../../route_cache.json');
+const ROUTE_CACHE_VERSION = 1;
 
 const router = express.Router();
+
+function sanitizeStopsForCache(stops = []) {
+  return stops.map((stop) => {
+    if (typeof stop === 'string') return stop;
+    return stop?.searchQuery || stop?.original || String(stop);
+  });
+}
+
+async function writeRouteCache(route, source, stops = []) {
+  const payload = {
+    version: ROUTE_CACHE_VERSION,
+    updatedAt: new Date().toISOString(),
+    source,
+    stops: sanitizeStopsForCache(stops),
+    route
+  };
+
+  const tempPath = `${ROUTE_CACHE_PATH}.${process.pid}.${Date.now()}.tmp`;
+  await fs.promises.writeFile(tempPath, JSON.stringify(payload, null, 2), 'utf-8');
+  await fs.promises.rename(tempPath, ROUTE_CACHE_PATH);
+  return payload;
+}
+
+function normalizeCachePayload(raw) {
+  // Backward compatibility: legacy file stored route object directly.
+  if (raw && raw.route) {
+    return {
+      version: raw.version || ROUTE_CACHE_VERSION,
+      updatedAt: raw.updatedAt || null,
+      source: raw.source || 'unknown',
+      stops: Array.isArray(raw.stops) ? raw.stops : [],
+      route: raw.route
+    };
+  }
+
+  return {
+    version: ROUTE_CACHE_VERSION,
+    updatedAt: null,
+    source: 'legacy',
+    stops: [],
+    route: raw || null
+  };
+}
+
+async function readRouteCache() {
+  try {
+    const data = await fs.promises.readFile(ROUTE_CACHE_PATH, 'utf-8');
+    return normalizeCachePayload(JSON.parse(data));
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+}
 
 // Configure multer for audio file uploads
 const storage = multer.memoryStorage();
@@ -93,11 +147,17 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
       warnings: routeData.warnings || []
     };
 
-    // Cache the route data to disk
-    fs.writeFile(ROUTE_CACHE_PATH, JSON.stringify(result.route), (err) => {
-      if (err) console.error('Failed to cache route:', err);
-      else console.log('Cached route to', ROUTE_CACHE_PATH);
-    });
+    try {
+      const cacheMeta = await writeRouteCache(routeData, 'process-voice', geminiResult.stops);
+      result.cache = {
+        version: cacheMeta.version,
+        updatedAt: cacheMeta.updatedAt,
+        source: cacheMeta.source
+      };
+      console.log('Cached route to', ROUTE_CACHE_PATH);
+    } catch (cacheError) {
+      console.error('Failed to cache route:', cacheError);
+    }
 
     res.json(result);
   } catch (error) {
@@ -123,10 +183,24 @@ router.post('/route', async (req, res) => {
     }
 
     const routeData = await getMultiStopRoute(stops);
+    let cache = null;
+
+    try {
+      const cacheMeta = await writeRouteCache(routeData, 'manual-route', stops);
+      cache = {
+        version: cacheMeta.version,
+        updatedAt: cacheMeta.updatedAt,
+        source: cacheMeta.source
+      };
+      console.log('Cached route to', ROUTE_CACHE_PATH);
+    } catch (cacheError) {
+      console.error('Failed to cache route:', cacheError);
+    }
 
     res.json({
       success: true,
-      route: routeData
+      route: routeData,
+      cache
     });
   } catch (error) {
     console.error('Error getting route:', error);
@@ -205,16 +279,26 @@ router.delete('/voice-buffers/:filename', (req, res) => {
  * GET /api/last-route
  * Return the most recently generated route from cache
  */
-router.get('/last-route', (req, res) => {
+router.get('/last-route', async (req, res) => {
   try {
-    if (!fs.existsSync(ROUTE_CACHE_PATH)) {
-      return res.json({ success: true, route: null });
+    const cache = await readRouteCache();
+    if (!cache) {
+      return res.json({ success: true, route: null, cache: null });
     }
-    const data = fs.readFileSync(ROUTE_CACHE_PATH, 'utf-8');
-    res.json({ success: true, route: JSON.parse(data) });
+
+    res.json({
+      success: true,
+      route: cache.route,
+      cache: {
+        version: cache.version,
+        updatedAt: cache.updatedAt,
+        source: cache.source,
+        stops: cache.stops
+      }
+    });
   } catch (error) {
     console.error('Error reading route cache:', error);
-    res.json({ success: true, route: null });
+    res.json({ success: true, route: null, cache: null });
   }
 });
 

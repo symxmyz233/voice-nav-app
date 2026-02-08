@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { GoogleMap, Marker, Polyline } from '@react-google-maps/api';
 import { searchCoffeeShops } from '../services/coffeeShopService.js';
 
@@ -32,15 +32,22 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
   const [coffeeShops, setCoffeeShops] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const polylineRef = useRef(null);
-  const initialCenterRef = useRef(null);
 
-  // Compute initial center only once: use the first route stop if available, otherwise default
-  if (!initialCenterRef.current) {
-    initialCenterRef.current = route?.stops?.[0]
-      ? { lat: route.stops[0].lat, lng: route.stops[0].lng }
-      : defaultCenter;
-  }
+  const normalizedStops = useMemo(() => {
+    if (!Array.isArray(route?.stops)) return [];
+
+    return route.stops
+      .map((stop) => ({
+        ...stop,
+        lat: Number(stop?.lat),
+        lng: Number(stop?.lng)
+      }))
+      .filter((stop) => Number.isFinite(stop.lat) && Number.isFinite(stop.lng));
+  }, [route]);
+
+  const mapCenter = normalizedStops[0]
+    ? { lat: normalizedStops[0].lat, lng: normalizedStops[0].lng }
+    : defaultCenter;
 
   const onLoad = useCallback((map) => {
     setMap(map);
@@ -59,24 +66,38 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
       setDecodedPath(decoded);
     } else {
       setDecodedPath([]);
-      // Directly remove the polyline from the map via native API
-      if (polylineRef.current) {
-        polylineRef.current.setMap(null);
-        polylineRef.current = null;
-      }
     }
   }, [route]);
 
   // Fit map to route bounds when route changes
   useEffect(() => {
-    if (map && route?.bounds) {
+    if (!map || !window.google) return;
+
+    const sw = route?.bounds?.southwest;
+    const ne = route?.bounds?.northeast;
+    const hasValidBounds =
+      Number.isFinite(Number(sw?.lat)) &&
+      Number.isFinite(Number(sw?.lng)) &&
+      Number.isFinite(Number(ne?.lat)) &&
+      Number.isFinite(Number(ne?.lng));
+
+    if (hasValidBounds) {
       const bounds = new window.google.maps.LatLngBounds(
-        route.bounds.southwest,
-        route.bounds.northeast
+        { lat: Number(sw.lat), lng: Number(sw.lng) },
+        { lat: Number(ne.lat), lng: Number(ne.lng) }
       );
       map.fitBounds(bounds, { padding: 50 });
+      return;
     }
-  }, [map, route]);
+
+    if (normalizedStops.length > 0) {
+      const bounds = new window.google.maps.LatLngBounds();
+      normalizedStops.forEach((stop) => {
+        bounds.extend({ lat: stop.lat, lng: stop.lng });
+      });
+      map.fitBounds(bounds, { padding: 50 });
+    }
+  }, [map, route, normalizedStops]);
 
   const getMarkerLabel = (index, total) => {
     if (index === 0) return 'A';
@@ -94,8 +115,11 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
       color = '#3b82f6'; // blue for waypoints
     }
 
+    const symbolPath = window.google?.maps?.SymbolPath?.CIRCLE;
+    if (!symbolPath) return undefined;
+
     return {
-      path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+      path: symbolPath,
       fillColor: color,
       fillOpacity: 1,
       strokeColor: '#ffffff',
@@ -106,9 +130,12 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
 
   // Get coffee shop marker icon
   const getCoffeeShopMarkerIcon = (rating) => {
+    const symbolPath = window.google?.maps?.SymbolPath?.CIRCLE;
+    if (!symbolPath) return undefined;
+
     const hue = Math.min(100, (rating / 5) * 120); // From red to green
     return {
-      path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+      path: symbolPath,
       fillColor: `hsl(${hue}, 80%, 50%)`,
       fillOpacity: 0.8,
       strokeColor: '#ffffff',
@@ -214,7 +241,7 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
     <div className="map-display-container">
       <GoogleMap
         mapContainerStyle={mapContainerStyle}
-        center={initialCenterRef.current}
+        center={mapCenter}
         zoom={10}
         onLoad={onLoad}
         onUnmount={onUnmount}
@@ -226,17 +253,17 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
         )}
 
         {/* Render markers for each stop */}
-        {route?.stops?.map((stop, index) => (
+        {normalizedStops.map((stop, index) => (
           <Marker
             key={`${stop.name}-${index}`}
             position={{ lat: stop.lat, lng: stop.lng }}
             label={{
-              text: getMarkerLabel(index, route.stops.length),
+              text: getMarkerLabel(index, normalizedStops.length),
               color: '#ffffff',
               fontWeight: 'bold',
               fontSize: '12px'
             }}
-            icon={getMarkerIcon(index, route.stops.length)}
+            icon={getMarkerIcon(index, normalizedStops.length)}
             title={stop.formattedAddress || stop.name}
           />
         ))}
