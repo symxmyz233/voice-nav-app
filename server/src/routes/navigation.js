@@ -24,13 +24,14 @@ function sanitizeStopsForCache(stops = []) {
   });
 }
 
-async function writeRouteCache(route, source, stops = []) {
+async function writeRouteCache(route, source, stops = [], transcript = null) {
   const payload = {
     version: ROUTE_CACHE_VERSION,
     updatedAt: new Date().toISOString(),
     source,
     stops: sanitizeStopsForCache(stops),
-    route
+    route,
+    transcript: transcript || null
   };
 
   const tempPath = `${ROUTE_CACHE_PATH}.${process.pid}.${Date.now()}.tmp`;
@@ -47,7 +48,8 @@ function normalizeCachePayload(raw) {
       updatedAt: raw.updatedAt || null,
       source: raw.source || 'unknown',
       stops: Array.isArray(raw.stops) ? raw.stops : [],
-      route: raw.route
+      route: raw.route,
+      transcript: raw.transcript || null
     };
   }
 
@@ -56,7 +58,8 @@ function normalizeCachePayload(raw) {
     updatedAt: null,
     source: 'legacy',
     stops: [],
-    route: raw || null
+    route: raw || null,
+    transcript: null
   };
 }
 
@@ -265,8 +268,9 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
     if (commandType === 'new_route') {
       finalStops = geminiResult.stops;
 
-      // Single-destination command (e.g. "Go to Times Square") — prepend current location
-      if (finalStops.length === 1) {
+      // Prepend current location when user didn't specify a starting point
+      // (e.g., "Go to X", "Go to X with a stop at Y")
+      if (geminiResult.needsCurrentLocation) {
         if (userLocation) {
           const currentLocationStop = {
             original: 'Current Location',
@@ -287,10 +291,10 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
             lng: userLocation.lng
           };
           finalStops = [currentLocationStop, ...finalStops];
-          console.log('Single-destination command — prepended current location as origin');
+          console.log('needsCurrentLocation=true — prepended current location as origin');
         } else {
           return res.status(400).json({
-            error: 'Single-destination commands require location access. Please enable location services or specify both a start and destination (e.g. "Navigate from A to B").'
+            error: 'This command requires location access. Please enable location services or specify a starting point (e.g. "Navigate from A to B").'
           });
         }
       }
@@ -580,7 +584,7 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
     };
 
     try {
-      const cacheMeta = await writeRouteCache(routeData, 'process-voice', geminiResult.stops);
+      const cacheMeta = await writeRouteCache(routeData, 'process-voice', geminiResult.stops, geminiResult.transcript);
       result.cache = {
         version: cacheMeta.version,
         updatedAt: cacheMeta.updatedAt,
@@ -646,7 +650,7 @@ router.post('/reconfirm-stop', upload.single('audio'), async (req, res) => {
 router.post('/route', async (req, res) => {
   console.log('\n========== /api/route CALLED ==========');
   try {
-    const { stops } = req.body;
+    const { stops, transcript } = req.body;
 
     console.log('📍 Received stops:', stops.length);
     stops.forEach((stop, i) => {
@@ -693,7 +697,7 @@ router.post('/route', async (req, res) => {
     let cache = null;
 
     try {
-      const cacheMeta = await writeRouteCache(routeData, 'manual-route', stops);
+      const cacheMeta = await writeRouteCache(routeData, 'manual-route', stops, transcript);
       cache = {
         version: cacheMeta.version,
         updatedAt: cacheMeta.updatedAt,
@@ -796,6 +800,7 @@ router.get('/last-route', async (req, res) => {
     res.json({
       success: true,
       route: cache.route,
+      transcript: cache.transcript || null,
       cache: {
         version: cache.version,
         updatedAt: cache.updatedAt,

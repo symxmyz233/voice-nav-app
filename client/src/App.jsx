@@ -47,13 +47,15 @@ function App() {
   const [statusMessage, setStatusMessage] = useState(null);
   const [confirmationData, setConfirmationData] = useState(null);
   const [userLocation, setUserLocation] = useState(null);
+  const [transcript, setTranscript] = useState(null);
 
   useEffect(() => {
-    // Load last route
+    // Load last route and transcript
     fetch('/api/last-route')
       .then((res) => res.json())
       .then((data) => {
         if (data.route) setRouteData(data.route);
+        if (data.transcript) setTranscript(data.transcript);
       })
       .catch(() => {});
 
@@ -129,6 +131,11 @@ function App() {
     console.log('\n📦 Full response data:', JSON.stringify(data, null, 2));
     console.log('================================================\n');
 
+    // Save transcript for display
+    if (data.transcript) {
+      setTranscript(data.transcript);
+    }
+
     // Check if confirmation is needed
     if (data.needsConfirmation) {
       console.log('⚠️ Confirmation required - showing targeted stops');
@@ -186,12 +193,21 @@ function App() {
     setConfirmationData(null);
     setLoading(true);
 
+    // Update transcript to reflect confirmed/edited addresses
+    const stopNames = confirmedStops.map(
+      (s) => s.searchQuery || s.formattedAddress || s.original || s.name || 'Unknown'
+    );
+    const updatedTranscript = stopNames.length > 0 ? stopNames.join(' → ') : null;
+    if (updatedTranscript) {
+      setTranscript(updatedTranscript);
+    }
+
     try {
-      // Call /api/route with confirmed stops
+      // Call /api/route with confirmed stops and transcript
       const response = await fetch('/api/route', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stops: confirmedStops })
+        body: JSON.stringify({ stops: confirmedStops, transcript: updatedTranscript })
       });
 
       const data = await response.json();
@@ -398,6 +414,14 @@ function App() {
               Processing your voice input...
             </div>
           )}
+
+          {transcript && (
+            <div className="transcript-box">
+              <span className="transcript-label">You said:</span>
+              <p className="transcript-text">"{transcript}"</p>
+            </div>
+          )}
+
           {routeData && (
             <RouteInfo
               route={routeData}

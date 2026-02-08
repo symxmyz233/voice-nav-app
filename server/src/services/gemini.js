@@ -33,6 +33,7 @@ Return ONLY a valid JSON object in this exact format, with no additional text:
 {
   "transcript": "the full transcription of what the user said",
   "commandType": "new_route|add_stop|insert_stop|replace_stop",
+  "needsCurrentLocation": true or false,
   "stops": [
     {
       "original": "exactly what the user said for this stop",
@@ -74,6 +75,12 @@ Command Type Guidelines:
 - "new_route": User is specifying a completely new route from scratch
   * Use for BOTH multi-stop ("Navigate from A to B") AND single-destination ("Go to X", "Take me to X", "Directions to X")
   * If only ONE destination is mentioned, extract ONLY that single stop. Do NOT invent or guess a starting location.
+  * Set "needsCurrentLocation": true when the user does NOT specify a starting point
+    (e.g., "Go to X", "Take me to X with a stop at Y", "Navigate to X via Y").
+  * Set "needsCurrentLocation": false when the user explicitly names an origin
+    (e.g., "Navigate FROM A to B", "Go from A to B via C").
+  * For add_stop/insert_stop/replace_stop, always set "needsCurrentLocation": false
+    (the existing route already has an origin).
 - "add_stop": User wants to add a stop to existing route WITHOUT specifying position (e.g., "Add a stop at C", "Stop at C", "I want to go to C")
   * ⚠️ CRITICAL: Extract ONLY ONE stop - the location being added. DO NOT extract existing route locations.
 - "insert_stop": User wants to insert a stop at a SPECIFIC position (e.g., "Add C between A and B", "Insert C after A", "Put C before B")
@@ -170,6 +177,10 @@ If you cannot understand the audio or no locations are mentioned, return:
       }
       if (!result.insertPosition) {
         result.insertPosition = { type: 'append', referenceIndex: null, referenceIndex2: null };
+      }
+      if (result.needsCurrentLocation === undefined) {
+        // Default: need current location if new_route with no explicit origin
+        result.needsCurrentLocation = result.commandType === 'new_route';
       }
 
       return result;

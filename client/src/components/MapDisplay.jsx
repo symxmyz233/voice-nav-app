@@ -118,7 +118,7 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
 
     if (stop?.via) {
       color = '#8b5cf6'; // purple for via
-      scale = 7;
+      scale = 10;
     } else if (index === 0) {
       color = '#22c55e'; // green for start
     } else if (index === total - 1) {
@@ -128,7 +128,7 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
     }
 
     const symbolPath = window.google?.maps?.SymbolPath?.CIRCLE;
-    if (!symbolPath) return undefined;
+    if (symbolPath == null) return undefined;
 
     return {
       path: symbolPath,
@@ -143,7 +143,7 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
   // Get coffee shop marker icon
   const getCoffeeShopMarkerIcon = (rating) => {
     const symbolPath = window.google?.maps?.SymbolPath?.CIRCLE;
-    if (!symbolPath) return undefined;
+    if (symbolPath == null) return undefined;
 
     const hue = Math.min(100, (rating / 5) * 120); // From red to green
     return {
