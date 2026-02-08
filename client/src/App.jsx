@@ -3,6 +3,7 @@ import { useJsApiLoader } from '@react-google-maps/api';
 import VoiceRecorder from './components/VoiceRecorder';
 import MapDisplay from './components/MapDisplay';
 import RouteInfo from './components/RouteInfo';
+import RouteEmailShare from './components/RouteEmailShare';
 import CoffeeShopRecommendations from './components/CoffeeShopRecommendations';
 import VoiceBufferList from './components/VoiceBufferList';
 
@@ -105,6 +106,7 @@ function App() {
             </div>
           )}
 
+          {routeData && <RouteEmailShare route={routeData} />}
           {routeData && <RouteInfo route={routeData} />}
 
           {coffeeShops.length > 0 && (

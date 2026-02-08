@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { extractStopsFromAudio } from '../services/gemini.js';
 import { getMultiStopRoute } from '../services/maps.js';
+import { isValidEmail, sendRouteEmail } from '../services/email.js';
 import { findNearbyCoffeeShops } from '../services/placeService.js';
 import { recommendCoffeeShops, formatShopForDisplay } from '../utils/coffeeShopRecommender.js';
 
@@ -299,6 +300,48 @@ router.get('/last-route', async (req, res) => {
   } catch (error) {
     console.error('Error reading route cache:', error);
     res.json({ success: true, route: null, cache: null });
+  }
+});
+
+/**
+ * POST /api/send-route-email
+ * Send the current/generated route to an email with a Google Maps deep link
+ */
+router.post('/send-route-email', async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim();
+    let route = req.body?.route || null;
+
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: 'A valid email address is required' });
+    }
+
+    // Allow clients to omit route and send the last cached route.
+    if (!route) {
+      const cache = await readRouteCache();
+      route = cache?.route || null;
+    }
+
+    if (!route) {
+      return res.status(400).json({ error: 'No route available to send' });
+    }
+
+    const emailResult = await sendRouteEmail({
+      toEmail: email,
+      route
+    });
+
+    res.json({
+      success: true,
+      message: `Route email sent to ${email}`,
+      mapsLink: emailResult.mapsLink,
+      messageId: emailResult.messageId
+    });
+  } catch (error) {
+    console.error('Error sending route email:', error);
+    res.status(500).json({
+      error: error.message || 'Failed to send route email'
+    });
   }
 });
 
