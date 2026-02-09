@@ -1067,7 +1067,7 @@ body {
 /* Shared compact hint text */
 .compact-hint {
   font-size: 0.85rem;
-  color: #6b7280;
+  color: #000000;
   margin-top: 8px;
   font-weight: 500;
 }
@@ -1075,7 +1075,8 @@ body {
 /* Compact voice recorder: own visible card */
 .voice-recorder--compact {
   background: white;
-  padding: 10px 16px;
+  color: #000000;
+  padding: 10px 12px;
   border-radius: 12px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   text-align: center;
@@ -1083,7 +1084,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 100px;
+  min-width: 110px;
 }
 .voice-recorder--compact .record-button {
   width: 44px;
@@ -1098,7 +1099,8 @@ body {
 /* Compact email share: own visible card */
 .route-email-share--compact {
   background: white;
-  padding: 10px 16px;
+  color: #000000;
+  padding: 10px 12px;
   border-radius: 12px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   display: flex;
@@ -1106,7 +1108,7 @@ body {
   align-items: center;
   justify-content: center;
   text-align: center;
-  width: 100px;
+  min-width: 110px;
 }
 .email-icon-button {
   width: 44px;
@@ -1132,7 +1134,7 @@ body {
 .email-icon-button .email-icon {
   width: 22px;
   height: 22px;
-  stroke: white;
+  /* stroke: white; */
   fill: none;
 }
 .route-email-compact-form {
@@ -1192,7 +1194,7 @@ body {
 
   .voice-recorder--compact,
   .route-email-share--compact {
-    width: 85px;
+    min-width: 90px;
     padding: 8px 10px;
   }
 
