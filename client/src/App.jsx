@@ -101,7 +101,6 @@ const deriveCoffeeSearchHints = (transcript, preference) => {
   return { brandDisplay: null, brandFilter: null, keyword: null };
 };
 
-function App() {
 function getConfirmationStopIndexes(stops = [], preferredIndexes = []) {
   if (Array.isArray(preferredIndexes) && preferredIndexes.length > 0) {
     const valid = preferredIndexes
@@ -204,11 +203,10 @@ function AppContent() {
             lng: position.coords.longitude
           };
           setUserLocation(location);
-          console.log('📍 User location obtained:', location);
+          console.log('User location obtained:', location);
         },
         (err) => {
           console.warn('Failed to get user location:', err.message);
-          // Don't show error to user, location is optional
         }
       );
     }
@@ -253,34 +251,6 @@ function AppContent() {
     libraries,
   });
 
-  // Auto-add coffee shop as waypoint when voice command requests it.
-  // Uses semantic placement: route duration determines the best position
-  // when the user's preference is ambiguous.
-  const handleCoffeeShopAutoAdd = useCallback(async (route, preference, transcript) => {
-    if (!route || !route.stops || route.stops.length < 2) return;
-
-    const searchHints = deriveCoffeeSearchHints(transcript, preference);
-    console.log('Auto-adding coffee shop with preference:', preference, 'keyword:', searchHints.keyword);
-    setAddingCoffeeShop(true);
-
-    try {
-      // 1. Resolve WHERE along the route to search using semantic analysis
-      const placement = resolvePlacement(preference, route);
-      console.log(`Semantic placement: fraction=${placement.fraction}, label="${placement.label}", brand=${placement.brand}`);
-
-      // 2. Interpolate the actual lat/lng on the route at that fraction
-      const searchPoint = interpolateRoutePoint(route.stops, placement.fraction);
-      if (!searchPoint) throw new Error('Could not determine search location');
-
-      console.log(`Searching near (${searchPoint.lat.toFixed(4)}, ${searchPoint.lng.toFixed(4)}) — ${placement.label}`);
-
-      // 3. Search for coffee shops at that point
-      const result = await searchCoffeeShops({
-        location: searchPoint,
-        radius: 5000,
-        limit: 8,
-        sortBy: 'score',
-        ...(searchHints.keyword ? { keyword: searchHints.keyword } : {})
   const openConfirmationDialog = useCallback((payload, fallback = {}) => {
     const stops = payload?.stops || fallback.stops || [];
     const confirmationStopIndexes = getConfirmationStopIndexes(stops, payload?.confirmationStopIndexes);
@@ -298,19 +268,29 @@ function AppContent() {
     }
   }, []);
 
-  const handleVoiceResult = useCallback((data) => {
-    console.log('\n========== FRONTEND: handleVoiceResult ==========');
-    console.log('📝 Transcript:', data.transcript);
-    console.log('🎯 Command Type:', data.commandType);
-    console.log('📍 Route stops:', data.route?.stops?.length || 0);
+  // Auto-add coffee shop as waypoint when voice command requests it.
+  const handleCoffeeShopAutoAdd = useCallback(async (route, preference, transcript) => {
+    if (!route || !route.stops || route.stops.length < 2) return;
 
-    // Log current route BEFORE update
-    console.log('\n🔍 BEFORE UPDATE:');
-    console.log('  Current routeData:', routeData);
-    if (routeData?.stops) {
-      console.log('  Current stops count:', routeData.stops.length);
-      routeData.stops.forEach((stop, i) => {
-        console.log(`    [${i}] ${stop.name} | original: "${stop.original}" | lat: ${stop.lat}, lng: ${stop.lng}`);
+    const searchHints = deriveCoffeeSearchHints(transcript, preference);
+    console.log('Auto-adding coffee shop with preference:', preference, 'keyword:', searchHints.keyword);
+    setAddingCoffeeShop(true);
+
+    try {
+      const placement = resolvePlacement(preference, route);
+      console.log(`Semantic placement: fraction=${placement.fraction}, label="${placement.label}", brand=${placement.brand}`);
+
+      const searchPoint = interpolateRoutePoint(route.stops, placement.fraction);
+      if (!searchPoint) throw new Error('Could not determine search location');
+
+      console.log(`Searching near (${searchPoint.lat.toFixed(4)}, ${searchPoint.lng.toFixed(4)}) — ${placement.label}`);
+
+      const result = await searchCoffeeShops({
+        location: searchPoint,
+        radius: 5000,
+        limit: 8,
+        sortBy: 'score',
+        ...(searchHints.keyword ? { keyword: searchHints.keyword } : {})
       });
 
       if (!result.recommendations || result.recommendations.length === 0) {
@@ -318,7 +298,6 @@ function AppContent() {
         return;
       }
 
-      // 4. Pick the best shop (brand-specific if provided, otherwise top-ranked)
       let bestShop = result.recommendations[0];
       const brandFilter = searchHints.brandFilter || placement.brand;
       if (brandFilter) {
@@ -337,8 +316,6 @@ function AppContent() {
 
       console.log('Auto-selected coffee shop:', bestShop.name);
 
-      // 5. Find optimal insertion index using detour-minimising algorithm
-      // Then ask for user confirmation before adding to the route.
       const shopPoint = { lat: bestShop.location.lat, lng: bestShop.location.lng };
       const insertIdx = bestInsertionIndex(route.stops, shopPoint);
       const insertAfterIndex = Math.max(0, insertIdx - 1);
@@ -375,18 +352,6 @@ function AppContent() {
         limit: 5,
         sortBy: 'distance',
         ...(searchHints.keyword ? { keyword: searchHints.keyword } : {})
-    // Save transcript for display
-    if (data.transcript) {
-      setTranscript(data.transcript);
-    }
-
-    // Check if confirmation is needed
-    if (data.needsConfirmation) {
-      console.log('⚠️ Confirmation required - showing targeted stops');
-      openConfirmationDialog(data, {
-        stops: data.stops,
-        transcript: data.transcript,
-        commandType: data.commandType
       });
 
       if (!result.recommendations || result.recommendations.length === 0) {
@@ -454,6 +419,7 @@ function AppContent() {
       const routeResponse = await fetch(`${API_BASE_URL}/route`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ stops: stopQueries })
       });
       const routeResult = await routeResponse.json();
@@ -462,7 +428,6 @@ function AppContent() {
         setCoffeeDetourRoute(routeResult.route);
         setIsDetourActive(true);
 
-        // Start live location tracking
         const watchId = watchUserPosition(
           (pos) => setUserLocation(pos),
           (err) => console.warn('Location tracking error:', err.message)
@@ -490,30 +455,67 @@ function AppContent() {
       locationWatchIdRef.current = null;
     }
   }, []);
-    // Add places from route to recent places
-    addPlacesFromRoute(data.route);
 
-    // Set status message based on command type
-    if (data.commandType === 'add_stop' || data.commandType === 'insert_stop') {
-      setStatusMessage('✓ Stop added to route');
-    } else if (data.commandType === 'replace_stop') {
-      setStatusMessage('✓ Stop replaced in route');
-    } else if (data.commandType === 'new_route') {
-      setStatusMessage('✓ New route created');
+  const handleVoiceResult = useCallback((data) => {
+    if (!data) return;
+
+    // Save transcript for display
+    if (data.transcript) {
+      setTranscript(data.transcript);
     }
 
-    // Clear status message after 3 seconds
-    setTimeout(() => setStatusMessage(null), 3000);
-
-    // Refresh history after voice result
-    if (isAuthenticated) {
-      refreshHistory();
-      refreshRecentDestinations();
+    // Check if confirmation is needed
+    if (data.needsConfirmation) {
+      openConfirmationDialog(data, {
+        stops: data.stops,
+        transcript: data.transcript,
+        commandType: data.commandType
+      });
+      setError(null);
+      setStatusMessage(null);
+      return;
     }
-  }, [openConfirmationDialog, routeData, isAuthenticated, refreshHistory, refreshRecentDestinations, addPlacesFromRoute]);
+
+    if (data.nearbySearch) {
+      handleNearbySearch(data.transcript || '');
+      return;
+    }
+
+    if (data.route) {
+      setRouteData(data.route);
+      setError(null);
+
+      // Add places from route to recent places
+      addPlacesFromRoute(data.route);
+
+      // Set status message based on command type
+      if (data.commandType === 'add_stop' || data.commandType === 'insert_stop') {
+        setStatusMessage('Stop added to route');
+      } else if (data.commandType === 'replace_stop') {
+        setStatusMessage('Stop replaced in route');
+      } else if (data.commandType === 'new_route') {
+        setStatusMessage('New route created');
+      } else {
+        setStatusMessage(data.message || 'Route updated');
+      }
+
+      if (data.addCoffeeShop) {
+        handleCoffeeShopAutoAdd(
+          data.route,
+          data.coffeeShopPreference || null,
+          data.transcript || ''
+        );
+      }
+
+      // Refresh history after voice result
+      if (isAuthenticated) {
+        refreshHistory();
+        refreshRecentDestinations();
+      }
+    }
+  }, [openConfirmationDialog, handleCoffeeShopAutoAdd, handleNearbySearch, isAuthenticated, refreshHistory, refreshRecentDestinations, addPlacesFromRoute]);
 
   const handleSelectDestination = useCallback(async (destination) => {
-    // Create route from current location to destination
     if (!userLocation) {
       setError('Unable to get your location. Please enable location services.');
       return;
@@ -566,57 +568,19 @@ function AppContent() {
     setSelectedNearbyShop(null);
   }, []);
 
-  const handleVoiceResult = useCallback((data) => {
-    if (!data) return;
-
-    if (data.needsConfirmation) {
-      setConfirmationData({
-        stops: data.stops || [],
-        transcript: data.transcript || null,
-        commandType: data.commandType || 'new_route'
-      });
-      setError(null);
-      setStatusMessage(null);
-      return;
-    }
-
-    if (data.nearbySearch) {
-      handleNearbySearch(data.transcript || '');
-      return;
-    }
-
-    if (data.route) {
-      setRouteData(data.route);
-      setError(null);
-      setStatusMessage(data.message || 'Route updated');
-
-      if (data.addCoffeeShop) {
-        handleCoffeeShopAutoAdd(
-          data.route,
-          data.coffeeShopPreference || null,
-          data.transcript || ''
-        );
-      }
-    }
-  }, [handleCoffeeShopAutoAdd, handleNearbySearch]);
-
   const handleConfirmAddresses = useCallback(async (confirmedStops) => {
     setLoading(true);
     setError(null);
-    try {
-      const response = await fetch(`${API_BASE_URL}/route`, {
 
-    // Update transcript to reflect confirmed/edited addresses
     const stopNames = confirmedStops.map(
       (s) => s.searchQuery || s.formattedAddress || s.original || s.name || 'Unknown'
     );
-    const updatedTranscript = stopNames.length > 0 ? stopNames.join(' → ') : null;
+    const updatedTranscript = stopNames.length > 0 ? stopNames.join(' \u2192 ') : null;
     if (updatedTranscript) {
       setTranscript(updatedTranscript);
     }
 
     try {
-      // Call /api/route with confirmed stops and transcript
       const response = await fetch('/api/route', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -629,11 +593,6 @@ function AppContent() {
         throw new Error(data.error || 'Failed to calculate route');
       }
 
-      if (data.success && data.route) {
-        setRouteData(data.route);
-        setStatusMessage('Route updated');
-        setConfirmationData(null);
-      }
       if (data.needsConfirmation) {
         openConfirmationDialog(data, {
           stops: data.stops || confirmedStops,
@@ -643,9 +602,11 @@ function AppContent() {
         return;
       }
 
-      setRouteData(data.route);
-      setStatusMessage('✓ Route created with confirmed addresses');
-      setTimeout(() => setStatusMessage(null), 3000);
+      if (data.success && data.route) {
+        setRouteData(data.route);
+        setStatusMessage('Route created with confirmed addresses');
+        setConfirmationData(null);
+      }
     } catch (err) {
       setError(err.message || 'Failed to confirm addresses');
     } finally {
@@ -674,9 +635,8 @@ function AppContent() {
       const response = await fetch(`${API_BASE_URL}/route`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stops: newStops })
         credentials: 'include',
-        body: JSON.stringify({ stops: updatedStops })
+        body: JSON.stringify({ stops: newStops })
       });
       const data = await response.json();
 
@@ -684,22 +644,19 @@ function AppContent() {
         throw new Error(data.error || 'Failed to update route');
       }
 
-      if (data.success && data.route) {
-        setRouteData(data.route);
-        setStatusMessage('Stop removed');
-      }
       if (data.needsConfirmation) {
         openConfirmationDialog(data, {
-          stops: data.stops || updatedStops,
+          stops: data.stops || newStops,
           transcript: null,
           commandType: data.commandType || 'new_route'
         });
         return;
       }
 
-      setRouteData(data.route);
-      setStatusMessage('✓ Stop removed and route updated');
-      setTimeout(() => setStatusMessage(null), 3000);
+      if (data.success && data.route) {
+        setRouteData(data.route);
+        setStatusMessage('Stop removed and route updated');
+      }
     } catch (err) {
       setError(err.message || 'Failed to remove stop');
     } finally {
@@ -719,13 +676,7 @@ function AppContent() {
         };
       }
 
-      const {
-        lat,
-        lng,
-        formattedAddress,
-        ...rest
-      } = stop || {};
-
+      const { lat, lng, formattedAddress, placeId, ...rest } = stop || {};
       return {
         ...rest,
         name: newValue,
@@ -741,21 +692,8 @@ function AppContent() {
       const response = await fetch(`${API_BASE_URL}/route`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ stops: newStops })
-      // Create new stops array with updated address
-      const updatedStops = routeData.stops.map((stop, index) => {
-        if (index === stopIndex) {
-          // Replace with new search query and remove old coordinates
-          // so the server re-geocodes the new address
-          const { lat, lng, formattedAddress, placeId, ...rest } = stop;
-          return {
-            ...rest,
-            name: newAddress,
-            searchQuery: newAddress,
-            original: newAddress
-          };
-        }
-        return stop;
       });
       const data = await response.json();
 
@@ -763,16 +701,25 @@ function AppContent() {
         throw new Error(data.error || 'Failed to update route');
       }
 
+      if (data.needsConfirmation) {
+        openConfirmationDialog(data, {
+          stops: data.stops || newStops,
+          transcript: null,
+          commandType: data.commandType || 'new_route'
+        });
+        return;
+      }
+
       if (data.success && data.route) {
         setRouteData(data.route);
-        setStatusMessage('Stop updated');
+        setStatusMessage('Stop updated and route recalculated');
       }
     } catch (err) {
       setError(err.message || 'Failed to update stop');
     } finally {
       setLoading(false);
     }
-  }, [routeData]);
+  }, [openConfirmationDialog, routeData]);
 
   const handleError = useCallback((errorMessage) => {
     setError(errorMessage);
@@ -782,7 +729,6 @@ function AppContent() {
   const handleLoadingChange = useCallback((isLoading) => {
     setLoading(isLoading);
     if (isLoading) {
-      // Don't clear routeData - we need it for "add stop" commands
       setError(null);
     }
   }, []);
@@ -845,9 +791,8 @@ function AppContent() {
       const response = await fetch(`${API_BASE_URL}/route`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stops: stopQueries })
         credentials: 'include',
-        body: JSON.stringify({ stops: updatedStops })
+        body: JSON.stringify({ stops: stopQueries })
       });
       const data = await response.json();
 
@@ -865,25 +810,13 @@ function AppContent() {
         setRouteData(data.route);
         setStatusMessage(`${shop.name} added to your route.`);
       }
-      if (data.needsConfirmation) {
-        openConfirmationDialog(data, {
-          stops: data.stops || updatedStops,
-          transcript: null,
-          commandType: data.commandType || 'new_route'
-        });
-        return;
-      }
-
-      setRouteData(data.route);
-      setStatusMessage('✓ Stop updated and route recalculated');
-      setTimeout(() => setStatusMessage(null), 3000);
     } catch (err) {
       console.error('Failed to add coffee shop:', err);
       setError(err.message || 'Failed to add stop');
     } finally {
       setLoading(false);
     }
-  }, [openConfirmationDialog, routeData]);
+  }, [routeData]);
 
   // Show login screen if not authenticated and not in guest mode
   if (!isAuthenticated && showLoginScreen && !authLoading) {
@@ -894,19 +827,17 @@ function AppContent() {
     return <div className="app-loading">Loading...</div>;
   }
 
-  const handleConfirmPendingCoffeeShop = useCallback(() => {
+  const handleConfirmPendingCoffeeShop = () => {
     if (!pendingCoffeeShop) return;
     addShopToRoute(pendingCoffeeShop.shop, pendingCoffeeShop.insertAfterIndex);
     setPendingCoffeeShop(null);
-  }, [pendingCoffeeShop, addShopToRoute]);
+  };
 
-  const handleCancelPendingCoffeeShop = useCallback(() => {
+  const handleCancelPendingCoffeeShop = () => {
     setPendingCoffeeShop(null);
-  }, []);
+  };
 
-  // Find insertion index by calculating closest non-coffee-shop stop to user location
-  // Then scan past any consecutive coffee shops already added after that stop
-  const findInsertIndexAfterCurrentLocation = useCallback(() => {
+  const findInsertIndexAfterCurrentLocation = () => {
     if (!routeData?.stops || routeData.stops.length < 2) return 0;
 
     if (!userLocation) {
@@ -917,7 +848,6 @@ function AppContent() {
     let closestIndex = 0;
     let minDistance = Infinity;
 
-    // Check all stops except destination, skipping coffee shop stops
     for (let i = 0; i < stops.length - 1; i++) {
       if (stops[i].isCoffeeShop) continue;
 
@@ -936,7 +866,6 @@ function AppContent() {
       }
     }
 
-    // Scan forward past consecutive coffee shops already added after closest stop
     let insertAfter = closestIndex;
     while (
       insertAfter + 1 < stops.length - 1 &&
@@ -946,21 +875,20 @@ function AppContent() {
     }
 
     return insertAfter;
-  }, [routeData, userLocation]);
+  };
 
-  // Distance-based handler: calculates closest stop, inserts after it
-  const handleModalAddShop = useCallback((shop) => {
+  const handleModalAddShop = (shop) => {
     const insertAfterIndex = findInsertIndexAfterCurrentLocation();
     addShopToRoute(shop, insertAfterIndex);
     setShowCoffeeModal(false);
-  }, [findInsertIndexAfterCurrentLocation, addShopToRoute]);
+  };
 
-  const handleCloseFallbackModal = useCallback(() => {
+  const handleCloseFallbackModal = () => {
     if (fallbackModal?.key) {
       setDismissedFallbackKeys((prev) => [...prev, fallbackModal.key]);
     }
     setFallbackModal(null);
-  }, [fallbackModal]);
+  };
 
   return (
     <div className="app">
@@ -1007,8 +935,6 @@ function AppContent() {
               onSelectDestination={handleSelectDestination}
             />
           )}
-
-
 
           {statusMessage && (
             <div className="success-message" style={{
@@ -1129,7 +1055,7 @@ function AppContent() {
                 </div>
                 <div className="coffee-popup-meta">
                   <span>
-                    ★ {pendingCoffeeShop.shop.rating ? pendingCoffeeShop.shop.rating.toFixed(1) : 'N/A'}
+                    {pendingCoffeeShop.shop.rating ? pendingCoffeeShop.shop.rating.toFixed(1) : 'N/A'}
                   </span>
                 </div>
               </div>
@@ -1184,7 +1110,7 @@ function AppContent() {
                   <div className="coffee-popup-name">{shop.name}</div>
                   <div className="coffee-popup-meta">
                     <span>{shop.distance || 'N/A'}</span>
-                    <span>★ {shop.rating ? shop.rating.toFixed(1) : 'N/A'}</span>
+                    <span>{shop.rating ? shop.rating.toFixed(1) : 'N/A'}</span>
                   </div>
                 </div>
               ))}
