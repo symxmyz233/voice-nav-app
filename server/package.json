@@ -12,9 +12,11 @@
     "@google/generative-ai": "^0.21.0",
     "@googlemaps/google-maps-services-js": "^3.4.2",
     "axios": "^1.13.4",
+    "better-sqlite3": "^12.6.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
+    "express-session": "^1.19.0",
     "multer": "^1.4.5-lts.1",
     "nodemailer": "^6.9.15"
   },

@@ -1,0 +1,81 @@
+.quick-add-destinations {
+  background: white;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e9ecef;
+}
+
+.quick-add-header {
+  margin-bottom: 8px;
+}
+
+.quick-add-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.quick-add-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.quick-add-chip {
+  display: inline-flex;
+  align-items: center;
+  background: #f8f9fa;
+  color: #495057;
+  border: 1px solid #dee2e6;
+  border-radius: 16px;
+  transition: all 0.2s;
+  font-family: inherit;
+  overflow: hidden;
+}
+
+.quick-add-chip:hover {
+  border-color: #667eea;
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+  transform: translateY(-1px);
+}
+
+.quick-add-main {
+  padding: 6px 10px;
+  font-size: 13px;
+  background: transparent;
+  color: inherit;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.quick-add-chip:hover .quick-add-main {
+  background: #e7f3ff;
+  color: #667eea;
+}
+
+.quick-add-main:active {
+  transform: translateY(0);
+}
+
+.quick-add-delete {
+  padding: 6px 8px;
+  font-size: 12px;
+  background: #fff0f0;
+  color: #b02a37;
+  border: none;
+  border-left: 1px solid #dee2e6;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+}
+
+.quick-add-delete:hover {
+  background: #ffe3e6;
+}

@@ -8,6 +8,8 @@ import { getMultiStopRoute } from '../services/maps.js';
 import { isValidEmail, sendRouteEmail } from '../services/email.js';
 import { findNearbyCoffeeShops } from '../services/placeService.js';
 import { recommendCoffeeShops, formatShopForDisplay } from '../utils/coffeeShopRecommender.js';
+import { optionalAuth } from '../middleware/auth.js';
+import { saveToHistory } from '../services/historyService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -155,7 +157,7 @@ const upload = multer({
  * POST /api/process-voice
  * Process voice input and return navigation route
  */
-router.post('/process-voice', upload.single('audio'), async (req, res) => {
+router.post('/process-voice', optionalAuth, upload.single('audio'), async (req, res) => {
   console.log('=== /api/process-voice called ===');
   try {
     if (!req.file) {
@@ -557,6 +559,23 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
       console.error('Failed to cache route:', cacheError);
     }
 
+    // Save to history if user is authenticated
+    if (req.userId) {
+      try {
+        await saveToHistory(
+          req.userId,
+          geminiResult.commandType || 'new_route',
+          geminiResult.transcript,
+          geminiResult.stops,
+          routeData
+        );
+        console.log('Saved route to history for user', req.userId);
+      } catch (historyError) {
+        console.error('Failed to save to history:', historyError);
+        // Don't fail the request if history save fails
+      }
+    }
+
     res.json(result);
   } catch (error) {
     console.error('Error processing voice:', error);
@@ -609,7 +628,7 @@ router.post('/reconfirm-stop', upload.single('audio'), async (req, res) => {
  * POST /api/route
  * Get route for manually specified stops
  */
-router.post('/route', async (req, res) => {
+router.post('/route', optionalAuth, async (req, res) => {
   console.log('\n========== /api/route CALLED ==========');
   try {
     const { stops } = req.body;
@@ -668,6 +687,23 @@ router.post('/route', async (req, res) => {
       console.log('Cached route to', ROUTE_CACHE_PATH);
     } catch (cacheError) {
       console.error('Failed to cache route:', cacheError);
+    }
+
+    // Save to history if user is authenticated
+    if (req.userId) {
+      try {
+        await saveToHistory(
+          req.userId,
+          'modify_route',
+          null,
+          stops,
+          routeData
+        );
+        console.log('Saved manual route to history for user', req.userId);
+      } catch (historyError) {
+        console.error('Failed to save to history:', historyError);
+        // Don't fail the request if history save fails
+      }
     }
 
     res.json({

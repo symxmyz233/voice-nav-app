@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import './RouteInfo.css';
 
 function RouteInfo({ route, onRemoveStop, onEditStop }) {
   const [expandedLeg, setExpandedLeg] = useState(null);
