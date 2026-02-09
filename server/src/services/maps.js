@@ -1238,6 +1238,15 @@ export async function getMultiStopRoute(stops, routeContext = null) {
         if (typeof stopInfo === 'string') return stopInfo;
         return stopInfo.searchQuery || stopInfo.original;
       };
+      const toLatLng = (stopInfo, fallbackStop) => {
+        if (stopInfo && stopInfo.lat !== undefined && stopInfo.lng !== undefined) {
+          return { lat: stopInfo.lat, lng: stopInfo.lng };
+        }
+        return getDirectionsQuery(fallbackStop);
+      };
+      const origin = toLatLng(geocodedStops[0], stops[0]);
+      const destination = toLatLng(geocodedStops[geocodedStops.length - 1], stops[stops.length - 1]);
+      const waypoints = geocodedStops.slice(1, -1).map((stop, index) => toLatLng(stop, stops[index + 1]));
       const origin = getDirectionsQuery(stops[0]);
       const destination = getDirectionsQuery(stops[stops.length - 1]);
       const waypoints = stops.slice(1, -1).map((stop, i) => {

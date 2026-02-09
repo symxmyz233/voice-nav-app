@@ -1,6 +1,12 @@
 import { Client } from '@googlemaps/google-maps-services-js';
 import { generateRoutePoints, distanceToRoute } from '../utils/routeUtils.js';
 
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+console.log(
+  'Loaded GOOGLE_MAPS_API_KEY:',
+  GOOGLE_MAPS_API_KEY ? `len=${String(GOOGLE_MAPS_API_KEY).length}` : 'missing'
+);
+
 const mapsClient = new Client({});
 
 /**
@@ -12,11 +18,12 @@ const mapsClient = new Client({});
  */
 export async function findNearbyCoffeeShops(lat, lng, radius = 5000) {
   try {
-    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+    const apiKey = GOOGLE_MAPS_API_KEY;
     const apiKeyPreview = apiKey ? `${apiKey.substring(0, 10)}...${apiKey.substring(apiKey.length - 4)}` : 'NOT_SET';
 
     console.log('=== Coffee Shop Search Debug ===');
     console.log(`Searching for coffee shops near ${lat}, ${lng} within ${radius}m`);
+    console.log('Loading Places API with GOOGLE_MAPS_API_KEY:', apiKey ? `len=${String(apiKey).length}` : 'missing');
     console.log(`API Key (partial): ${apiKeyPreview}`);
     console.log(`Request params:`, {
       location: { lat, lng },

@@ -1,10 +1,16 @@
 import { GoogleGenAI } from '@google/genai';
 
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+console.log(
+  'Loaded GEMINI_API_KEY:',
+  GEMINI_API_KEY ? `len=${String(GEMINI_API_KEY).length}` : 'missing'
+);
+
 let ai = null;
 
 function getClient() {
   if (!ai) {
-    ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
   }
   return ai;
 }

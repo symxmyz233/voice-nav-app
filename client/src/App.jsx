@@ -7,8 +7,17 @@ import RouteEmailShare from './components/RouteEmailShare';
 import CoffeeShopRecommendations from './components/CoffeeShopRecommendations';
 import VoiceBufferList from './components/VoiceBufferList';
 import AddressConfirmation from './components/AddressConfirmation';
+import LoginScreen from './components/LoginScreen';
+import UserProfile from './components/UserProfile';
+import QuickStartPanel from './components/QuickStartPanel';
+import QuickAddDestinations from './components/QuickAddDestinations';
+import RecentPlacesList from './components/RecentPlacesList';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { HistoryProvider, useHistory } from './contexts/HistoryContext';
+import { RecentPlacesProvider, useRecentPlaces } from './contexts/RecentPlacesContext';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 const libraries = ['places', 'geometry'];
 
@@ -39,7 +48,11 @@ function getConfirmationStopIndexes(stops = [], preferredIndexes = []) {
   return stops.map((_, index) => index);
 }
 
-function App() {
+function AppContent() {
+  const { isAuthenticated, currentUser, loading: authLoading } = useAuth();
+  const { refreshHistory, refreshRecentDestinations } = useHistory();
+  const { addPlacesFromRoute } = useRecentPlaces();
+  const [showLoginScreen, setShowLoginScreen] = useState(true);
   const [routeData, setRouteData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -50,6 +63,22 @@ function App() {
   const [transcript, setTranscript] = useState(null);
 
   useEffect(() => {
+    const maskSecret = (value) => {
+      if (!value) return 'missing';
+      const str = String(value);
+      if (str.length <= 8) return `len=${str.length}`;
+      return `${str.slice(0, 6)}...${str.slice(-4)} (len=${str.length})`;
+    };
+
+    console.log('=== Frontend API Config ===');
+    console.log('VITE_API_URL:', API_BASE_URL);
+    console.log('VITE_GOOGLE_MAPS_API_KEY:', maskSecret(GOOGLE_MAPS_API_KEY));
+    console.log('=== End Frontend API Config ===');
+
+    // Load last route - for authenticated users, load from history
+    if (isAuthenticated) {
+      fetch('http://localhost:3001/api/history?limit=1', {
+        credentials: 'include'
     // Load last route and transcript
     fetch('/api/last-route')
       .then((res) => res.json())
@@ -57,7 +86,22 @@ function App() {
         if (data.route) setRouteData(data.route);
         if (data.transcript) setTranscript(data.transcript);
       })
-      .catch(() => {});
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && data.history?.[0]) {
+            setRouteData(data.history[0].route);
+          }
+        })
+        .catch(() => {});
+    } else {
+      // For guests, load from cache
+      fetch('/api/last-route')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.route) setRouteData(data.route);
+        })
+        .catch(() => {});
+    }
 
     // Get user's current location
     if (navigator.geolocation) {
@@ -76,7 +120,7 @@ function App() {
         }
       );
     }
-  }, []);
+  }, [isAuthenticated]);
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: GOOGLE_MAPS_API_KEY,
@@ -153,6 +197,9 @@ function App() {
     setRouteData(data.route);
     setError(null);
 
+    // Add places from route to recent places
+    addPlacesFromRoute(data.route);
+
     // Set status message based on command type
     if (data.commandType === 'add_stop' || data.commandType === 'insert_stop') {
       setStatusMessage('✓ Stop added to route');
@@ -164,7 +211,104 @@ function App() {
 
     // Clear status message after 3 seconds
     setTimeout(() => setStatusMessage(null), 3000);
-  }, [openConfirmationDialog, routeData]);
+
+    // Refresh history after voice result
+    if (isAuthenticated) {
+      refreshHistory();
+      refreshRecentDestinations();
+    }
+  }, [openConfirmationDialog, routeData, isAuthenticated, refreshHistory, refreshRecentDestinations, addPlacesFromRoute]);
+
+  const handleSelectDestination = useCallback(async (destination) => {
+    // Create route from current location to destination
+    if (!userLocation) {
+      setError('Unable to get your location. Please enable location services.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const stops = [
+        {
+          name: 'Your Location',
+          searchQuery: 'Your Location',
+          lat: userLocation.lat,
+          lng: userLocation.lng,
+          formattedAddress: `${userLocation.lat}, ${userLocation.lng}`
+        },
+        destination
+      ];
+
+      const response = await fetch(`${API_BASE_URL}/route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ stops })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setRouteData(result.route);
+        addPlacesFromRoute(result.route);
+        if (isAuthenticated) {
+          refreshHistory();
+          refreshRecentDestinations();
+        }
+      } else {
+        setError(result.error || 'Failed to calculate route');
+      }
+    } catch (err) {
+      setError('Failed to create route to destination');
+    } finally {
+      setLoading(false);
+    }
+  }, [userLocation, isAuthenticated, refreshHistory, refreshRecentDestinations, addPlacesFromRoute]);
+
+  const handleQuickAddStop = useCallback(async (destination) => {
+    if (!routeData || !routeData.stops) {
+      // If no current route, create one from user location to destination
+      handleSelectDestination(destination);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Add destination as new stop before the final destination
+      const currentStops = [...routeData.stops];
+      const newStops = [...currentStops.slice(0, -1), destination, currentStops[currentStops.length - 1]];
+
+      const response = await fetch(`${API_BASE_URL}/route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ stops: newStops })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setRouteData(result.route);
+        addPlacesFromRoute(result.route);
+        setStatusMessage(`✓ Added ${destination.name} to route`);
+        setTimeout(() => setStatusMessage(null), 3000);
+        if (isAuthenticated) {
+          refreshHistory();
+          refreshRecentDestinations();
+        }
+      } else {
+        setError(result.error || 'Failed to add stop');
+      }
+    } catch (err) {
+      setError('Failed to add stop to route');
+    } finally {
+      setLoading(false);
+    }
+  }, [routeData, handleSelectDestination, isAuthenticated, refreshHistory, refreshRecentDestinations, addPlacesFromRoute]);
 
   const handleError = useCallback((errorMessage) => {
     setError(errorMessage);
@@ -349,6 +493,15 @@ function App() {
     }
   }, [openConfirmationDialog, routeData]);
 
+  // Show login screen if not authenticated and not in guest mode
+  if (!isAuthenticated && showLoginScreen && !authLoading) {
+    return <LoginScreen onContinueAsGuest={() => setShowLoginScreen(false)} />;
+  }
+
+  if (authLoading) {
+    return <div className="app-loading">Loading...</div>;
+  }
+
   return (
     <div className="app">
       {confirmationData && (
@@ -362,12 +515,25 @@ function App() {
       )}
 
       <header className="app-header">
-        <h1>Voice Navigation Planner</h1>
-        <p>Speak your route and see it on the map</p>
+        <div className="header-content">
+          <div className="header-left">
+            <h1>Voice Navigation Planner</h1>
+            <p>Speak your route and see it on the map</p>
+          </div>
+          <div className="header-right">
+            <UserProfile />
+          </div>
+        </div>
       </header>
 
       <main className="app-main">
         <div className="control-panel">
+          {!routeData && isAuthenticated && (
+            <QuickStartPanel
+              onSelectDestination={handleSelectDestination}
+            />
+          )}
+
           {routeData ? (
             <div className="voice-email-row">
               <VoiceRecorder
@@ -388,6 +554,10 @@ function App() {
               currentRoute={routeData}
               userLocation={userLocation}
             />
+          )}
+
+          {isAuthenticated && (
+            <RecentPlacesList onSelectPlace={handleSelectDestination} />
           )}
 
           {statusMessage && (
@@ -415,6 +585,8 @@ function App() {
             </div>
           )}
 
+          {routeData && isAuthenticated && (
+            <QuickAddDestinations onAddStop={handleQuickAddStop} />
           {transcript && (
             <div className="transcript-box">
               <span className="transcript-label">You said:</span>
@@ -464,6 +636,18 @@ function App() {
         </div>
       </main>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <HistoryProvider>
+        <RecentPlacesProvider>
+          <AppContent />
+        </RecentPlacesProvider>
+      </HistoryProvider>
+    </AuthProvider>
   );
 }
 

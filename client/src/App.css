@@ -16,21 +16,45 @@ body {
   overflow: hidden;
 }
 
+.app-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  font-size: 18px;
+  color: #667eea;
+}
+
 .app-header {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   padding: 20px;
-  text-align: center;
 }
 
-.app-header h1 {
+.header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.header-left {
+  flex: 1;
+}
+
+.header-left h1 {
   font-size: 1.8rem;
   margin-bottom: 5px;
 }
 
-.app-header p {
+.header-left p {
   opacity: 0.9;
   font-size: 0.95rem;
+}
+
+.header-right {
+  margin-left: 20px;
 }
 
 .app-main {
