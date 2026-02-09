@@ -10,7 +10,6 @@ import AddressConfirmation from './components/AddressConfirmation';
 import LoginScreen from './components/LoginScreen';
 import UserProfile from './components/UserProfile';
 import QuickStartPanel from './components/QuickStartPanel';
-import QuickAddDestinations from './components/QuickAddDestinations';
 import RecentPlacesList from './components/RecentPlacesList';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { HistoryProvider, useHistory } from './contexts/HistoryContext';
@@ -75,30 +74,27 @@ function AppContent() {
     console.log('VITE_GOOGLE_MAPS_API_KEY:', maskSecret(GOOGLE_MAPS_API_KEY));
     console.log('=== End Frontend API Config ===');
 
-    // Load last route - for authenticated users, load from history
+    // Load last route + transcript.
     if (isAuthenticated) {
-      fetch('http://localhost:3001/api/history?limit=1', {
+      fetch(`${API_BASE_URL}/history?limit=1`, {
         credentials: 'include'
-    // Load last route and transcript
-    fetch('/api/last-route')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.route) setRouteData(data.route);
-        if (data.transcript) setTranscript(data.transcript);
       })
         .then((res) => res.json())
         .then((data) => {
           if (data.success && data.history?.[0]) {
-            setRouteData(data.history[0].route);
+            setRouteData(data.history[0].route || null);
+            if (data.history[0].transcript) {
+              setTranscript(data.history[0].transcript);
+            }
           }
         })
         .catch(() => {});
     } else {
-      // For guests, load from cache
-      fetch('/api/last-route')
+      fetch(`${API_BASE_URL}/last-route`)
         .then((res) => res.json())
         .then((data) => {
           if (data.route) setRouteData(data.route);
+          if (data.transcript) setTranscript(data.transcript);
         })
         .catch(() => {});
     }
@@ -267,49 +263,6 @@ function AppContent() {
     }
   }, [userLocation, isAuthenticated, refreshHistory, refreshRecentDestinations, addPlacesFromRoute]);
 
-  const handleQuickAddStop = useCallback(async (destination) => {
-    if (!routeData || !routeData.stops) {
-      // If no current route, create one from user location to destination
-      handleSelectDestination(destination);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Add destination as new stop before the final destination
-      const currentStops = [...routeData.stops];
-      const newStops = [...currentStops.slice(0, -1), destination, currentStops[currentStops.length - 1]];
-
-      const response = await fetch(`${API_BASE_URL}/route`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ stops: newStops })
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        setRouteData(result.route);
-        addPlacesFromRoute(result.route);
-        setStatusMessage(`✓ Added ${destination.name} to route`);
-        setTimeout(() => setStatusMessage(null), 3000);
-        if (isAuthenticated) {
-          refreshHistory();
-          refreshRecentDestinations();
-        }
-      } else {
-        setError(result.error || 'Failed to add stop');
-      }
-    } catch (err) {
-      setError('Failed to add stop to route');
-    } finally {
-      setLoading(false);
-    }
-  }, [routeData, handleSelectDestination, isAuthenticated, refreshHistory, refreshRecentDestinations, addPlacesFromRoute]);
-
   const handleError = useCallback((errorMessage) => {
     setError(errorMessage);
     setRouteData(null);
@@ -351,6 +304,7 @@ function AppContent() {
       const response = await fetch('/api/route', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ stops: confirmedStops, transcript: updatedTranscript })
       });
 
@@ -407,6 +361,7 @@ function AppContent() {
       const response = await fetch('/api/route', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ stops: updatedStops })
       });
 
@@ -464,6 +419,7 @@ function AppContent() {
       const response = await fetch('/api/route', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ stops: updatedStops })
       });
 
@@ -520,8 +476,22 @@ function AppContent() {
             <h1>Voice Navigation Planner</h1>
             <p>Speak your route and see it on the map</p>
           </div>
+          <div className="header-actions">
+            <VoiceRecorder
+              onResult={handleVoiceResult}
+              onError={handleError}
+              onLoadingChange={handleLoadingChange}
+              currentRoute={routeData}
+              userLocation={userLocation}
+              compact
+            />
+            {routeData && <RouteEmailShare route={routeData} compact />}
+          </div>
           <div className="header-right">
             <UserProfile />
+            {isAuthenticated && (
+              <RecentPlacesList onSelectPlace={handleSelectDestination} />
+            )}
           </div>
         </div>
       </header>
@@ -534,31 +504,7 @@ function AppContent() {
             />
           )}
 
-          {routeData ? (
-            <div className="voice-email-row">
-              <VoiceRecorder
-                onResult={handleVoiceResult}
-                onError={handleError}
-                onLoadingChange={handleLoadingChange}
-                currentRoute={routeData}
-                userLocation={userLocation}
-                compact
-              />
-              <RouteEmailShare route={routeData} compact />
-            </div>
-          ) : (
-            <VoiceRecorder
-              onResult={handleVoiceResult}
-              onError={handleError}
-              onLoadingChange={handleLoadingChange}
-              currentRoute={routeData}
-              userLocation={userLocation}
-            />
-          )}
 
-          {isAuthenticated && (
-            <RecentPlacesList onSelectPlace={handleSelectDestination} />
-          )}
 
           {statusMessage && (
             <div className="success-message" style={{
@@ -585,8 +531,6 @@ function AppContent() {
             </div>
           )}
 
-          {routeData && isAuthenticated && (
-            <QuickAddDestinations onAddStop={handleQuickAddStop} />
           {transcript && (
             <div className="transcript-box">
               <span className="transcript-label">You said:</span>

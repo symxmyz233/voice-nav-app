@@ -26,7 +26,7 @@ export function HistoryProvider({ children }) {
 
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:3001/api/history?limit=20', {
+      const response = await fetch('/api/history?limit=20', {
         credentials: 'include'
       });
       const data = await response.json();
@@ -45,7 +45,7 @@ export function HistoryProvider({ children }) {
     if (!isAuthenticated) return;
 
     try {
-      const response = await fetch('http://localhost:3001/api/history/recent-destinations?limit=10', {
+      const response = await fetch('/api/history/recent-destinations?limit=10', {
         credentials: 'include'
       });
       const data = await response.json();

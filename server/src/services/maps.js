@@ -1266,17 +1266,18 @@ export async function getMultiStopRoute(stops, routeContext = null) {
         if (typeof stopInfo === 'string') return stopInfo;
         return stopInfo.searchQuery || stopInfo.original;
       };
-      const toLatLng = (stopInfo, fallbackStop) => {
-        if (stopInfo && stopInfo.lat !== undefined && stopInfo.lng !== undefined) {
-          return { lat: stopInfo.lat, lng: stopInfo.lng };
-        }
-        return getDirectionsQuery(fallbackStop);
-      };
-      const origin = toLatLng(geocodedStops[0], stops[0]);
-      const destination = toLatLng(geocodedStops[geocodedStops.length - 1], stops[stops.length - 1]);
-      const waypoints = geocodedStops.slice(1, -1).map((stop, index) => toLatLng(stop, stops[index + 1]));
-      const origin = getDirectionsQuery(stops[0]);
-      const destination = getDirectionsQuery(stops[stops.length - 1]);
+
+      const origin = geocodedStops[0]?.lat !== undefined && geocodedStops[0]?.lng !== undefined
+        ? { lat: geocodedStops[0].lat, lng: geocodedStops[0].lng }
+        : getDirectionsQuery(stops[0]);
+      const destination = geocodedStops[geocodedStops.length - 1]?.lat !== undefined &&
+        geocodedStops[geocodedStops.length - 1]?.lng !== undefined
+        ? {
+            lat: geocodedStops[geocodedStops.length - 1].lat,
+            lng: geocodedStops[geocodedStops.length - 1].lng
+          }
+        : getDirectionsQuery(stops[stops.length - 1]);
+
       const waypoints = stops.slice(1, -1).map((stop, i) => {
         const geocoded = geocodedStops[i + 1];
         if (geocoded?.via) {
@@ -1286,6 +1287,11 @@ export async function getMultiStopRoute(stops, routeContext = null) {
           }
           return `via:${getDirectionsQuery(stop)}`;
         }
+
+        if (geocoded?.lat !== undefined && geocoded?.lng !== undefined) {
+          return { lat: geocoded.lat, lng: geocoded.lng };
+        }
+
         return getDirectionsQuery(stop);
       });
       const data = await getRouteViaDirectionsApi(origin, destination, waypoints);

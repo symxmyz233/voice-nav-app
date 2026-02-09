@@ -64,7 +64,6 @@ function RouteEmailShare({ route, compact = false }) {
   if (compact) {
     return (
       <div className="route-email-share route-email-share--compact">
-        <h3 className="compact-title">Send to Phone</h3>
         <button
           className="email-icon-button"
           onClick={() => (canQuickSend ? sendEmail() : setShowForm(!showForm))}
@@ -76,9 +75,7 @@ function RouteEmailShare({ route, compact = false }) {
             <polyline points="22,6 12,13 2,6" fill="none" stroke="white" strokeWidth="2"/>
           </svg>
         </button>
-        <p className="compact-hint">
-          {canQuickSend ? `Send to ${storedEmail}` : (showForm ? 'Tap to close' : 'Tap to email route')}
-        </p>
+        <p className="compact-hint">Send to Phone</p>
         {!canQuickSend && showForm && (
           <div className="route-email-compact-form">
             <form className="route-email-form" onSubmit={handleSubmit}>

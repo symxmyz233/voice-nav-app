@@ -68,6 +68,7 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
 
       const response = await fetch('/api/process-voice', {
         method: 'POST',
+        credentials: 'include',
         body: formData
       });
 
@@ -152,7 +153,6 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
   return (
     <div className={`voice-recorder${compact ? ' voice-recorder--compact' : ''}`}>
       {!compact && <h2>Voice Input</h2>}
-      {compact && <h3 className="compact-title">Voice Input</h3>}
 
       <button
         className={`record-button ${isRecording ? 'recording' : ''}`}
@@ -174,13 +174,16 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
         </svg>
       </button>
 
-      <p className={`record-status ${isRecording ? 'recording' : ''}${compact ? ' compact-hint' : ''}`}>
-        {isProcessing
-          ? 'Processing...'
-          : isRecording
-          ? 'Click to stop'
-          : 'Tap to record'}
-      </p>
+      {compact && <p className="compact-hint">Voice Input</p>}
+      {!compact && (
+        <p className={`record-status ${isRecording ? 'recording' : ''}`}>
+          {isProcessing
+            ? 'Processing...'
+            : isRecording
+            ? 'Click to stop'
+            : 'Tap to record'}
+        </p>
+      )}
 
       {!compact && (
         <p style={{ fontSize: '0.8rem', color: '#9ca3af', marginTop: '10px' }}>

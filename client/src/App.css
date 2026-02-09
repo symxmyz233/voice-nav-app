@@ -54,7 +54,17 @@ body {
 }
 
 .header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   margin-left: 20px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
 }
 
 .app-main {
@@ -768,6 +778,8 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
+  flex: 1;
 }
 .voice-recorder--compact .record-button {
   width: 50px;
@@ -789,6 +801,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   text-align: center;
 }
 .email-icon-button {

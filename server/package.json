@@ -2,9 +2,12 @@
   "name": "server",
   "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20.17.0 <21"
+  },
   "main": "src/index.js",
   "scripts": {
-    "dev": "node --watch src/index.js",
+    "dev": "node --watch-path=src src/index.js",
     "start": "node src/index.js"
   },
   "dependencies": {

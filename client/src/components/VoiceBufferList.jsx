@@ -41,6 +41,7 @@ function VoiceBufferList({ onResult, onError, onLoadingChange, userLocation = nu
 
       const response = await fetch('/api/process-voice', {
         method: 'POST',
+        credentials: 'include',
         body: formData,
       });
 

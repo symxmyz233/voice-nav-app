@@ -14,7 +14,7 @@ export function AuthProvider({ children }) {
 
   const checkAuth = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/users/current', {
+      const response = await fetch('/api/users/current', {
         credentials: 'include'
       });
       const data = await response.json();
@@ -37,7 +37,7 @@ export function AuthProvider({ children }) {
 
   const resetAuthOnAppStart = async () => {
     try {
-      await fetch('http://localhost:3001/api/users/logout', {
+      await fetch('/api/users/logout', {
         method: 'POST',
         credentials: 'include'
       });
@@ -52,7 +52,7 @@ export function AuthProvider({ children }) {
 
   const login = async (username, email) => {
     try {
-      const response = await fetch('http://localhost:3001/api/users/login', {
+      const response = await fetch('/api/users/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -83,7 +83,7 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     try {
-      await fetch('http://localhost:3001/api/users/logout', {
+      await fetch('/api/users/logout', {
         method: 'POST',
         credentials: 'include'
       });

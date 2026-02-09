@@ -1,57 +1,102 @@
 .recent-places-list {
-  background: white;
-  border-radius: 8px;
-  padding: 16px;
-  margin-top: 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e9ecef;
+  position: relative;
 }
 
-.recent-places-header {
+.recent-places-toggle {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
-  padding-bottom: 12px;
-  border-bottom: 2px solid #f0f0f0;
+  width: 100%;
+  padding: 8px 12px;
+  background: white;
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  transition: background 0.2s;
+  white-space: nowrap;
 }
 
-.recent-places-header h3 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: #333;
+.recent-places-toggle:hover {
+  background: #f5f5f5;
+}
+
+.recent-places-toggle-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .recent-places-count {
-  font-size: 13px;
+  font-size: 11px;
   color: #666;
-  background: #f8f9fa;
-  padding: 4px 12px;
-  border-radius: 12px;
+  background: #f0f0f0;
+  padding: 1px 7px;
+  border-radius: 10px;
   font-weight: 500;
 }
 
+.recent-places-arrow {
+  font-size: 10px;
+  color: #999;
+  transition: transform 0.2s;
+}
+
+.recent-places-arrow.open {
+  transform: rotate(180deg);
+}
+
+.recent-places-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  border: 1px solid #e9ecef;
+  min-width: 280px;
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 100;
+}
+
 .recent-places-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+}
+
+.recent-places-empty {
+  padding: 16px;
+  text-align: center;
+  color: #999;
+  font-size: 13px;
+}
+
+.recent-places-empty p {
+  margin: 0;
 }
 
 .recent-place-card {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .recent-place-main {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
   background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
+  border: 1px solid #eee;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
   text-align: left;
@@ -63,30 +108,20 @@
 .recent-place-main:hover {
   background: #e7f3ff;
   border-color: #667eea;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(102, 126, 234, 0.2);
 }
 
 .recent-place-main:active {
   transform: translateY(0);
 }
 
-.place-icon {
-  font-size: 24px;
-  flex-shrink: 0;
-}
-
 .place-info {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 
 .place-name {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   color: #333;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -94,12 +129,12 @@
 }
 
 .recent-place-delete {
-  padding: 6px 10px;
-  font-size: 12px;
+  padding: 4px 8px;
+  font-size: 11px;
   background: #fff0f0;
   color: #b02a37;
   border: 1px solid #f1aeb5;
-  border-radius: 6px;
+  border-radius: 4px;
   cursor: pointer;
   font-family: inherit;
   font-weight: 600;
@@ -108,41 +143,10 @@
 
 .recent-place-delete:hover {
   background: #ffe3e6;
-  border-color: #e59aa2;
 }
 
-.recent-place-delete:active {
-  transform: translateY(1px);
-}
-
-.place-address {
-  font-size: 12px;
-  color: #666;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.recent-places-loading,
-.recent-places-empty {
-  text-align: center;
-  padding: 24px;
-  color: #666;
-}
-
-.recent-places-empty p {
-  margin: 8px 0;
-  font-size: 14px;
-}
-
-.recent-places-empty p:first-child {
-  font-weight: 600;
-  color: #333;
-}
-
-/* Mobile responsive */
 @media (max-width: 768px) {
-  .recent-places-grid {
-    grid-template-columns: 1fr;
+  .recent-places-dropdown {
+    min-width: 240px;
   }
 }
