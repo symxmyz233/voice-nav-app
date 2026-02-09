@@ -24,10 +24,13 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
           lat: position.coords.latitude,
           lng: position.coords.longitude
         }),
-        () => resolve(null),
+        (err) => {
+          console.warn('Geolocation failed:', err.code, err.message);
+          resolve(null);
+        },
         {
           enableHighAccuracy: false,
-          timeout: 4000,
+          timeout: 10000,
           maximumAge: 60_000
         }
       );

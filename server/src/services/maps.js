@@ -190,8 +190,7 @@ async function validateAddress(query) {
 async function findPlaceByTextSearch(query, options = {}) {
   const params = {
     query: query,
-    key: process.env.GOOGLE_MAPS_API_KEY,
-    fields: 'name,formatted_address,geometry,place_id,rating,types'
+    key: process.env.GOOGLE_MAPS_API_KEY
   };
 
   // Add location bias if provided
@@ -200,23 +199,23 @@ async function findPlaceByTextSearch(query, options = {}) {
     params.radius = 50000; // 50km radius
   }
 
-  console.log('\n=== 📍 PLACES API CALL ===');
+  console.log('\n=== 📍 PLACES TEXT SEARCH API CALL ===');
   console.log('Query:', query);
   console.log('Params:', JSON.stringify(params, null, 2));
 
-  const response = await mapsClient.findPlaceFromText({ params });
+  const response = await mapsClient.textSearch({ params });
 
-  console.log(`\n📊 Places API Response: Found ${response.data.candidates?.length || 0} candidates`);
+  console.log(`\n📊 Places Text Search Response: Found ${response.data.results?.length || 0} results`);
 
-  if (!response.data.candidates || response.data.candidates.length === 0) {
+  if (!response.data.results || response.data.results.length === 0) {
     console.log('❌ No places found');
     console.log('=== END PLACES API ===\n');
     throw new Error(`Could not find place: ${query}`);
   }
 
-  // Log all candidates
-  response.data.candidates.forEach((place, idx) => {
-    console.log(`\n  Candidate ${idx + 1}:`);
+  // Log top candidates (limit to 5)
+  response.data.results.slice(0, 5).forEach((place, idx) => {
+    console.log(`\n  Result ${idx + 1}:`);
     console.log(`    Name: ${place.name}`);
     console.log(`    Address: ${place.formatted_address}`);
     console.log(`    Location: ${place.geometry.location.lat}, ${place.geometry.location.lng}`);
@@ -225,8 +224,8 @@ async function findPlaceByTextSearch(query, options = {}) {
     console.log(`    Types: ${place.types?.join(', ') || 'N/A'}`);
   });
 
-  const place = response.data.candidates[0];
-  console.log(`\n✅ Using top candidate: ${place.name} - ${place.formatted_address}`);
+  const place = response.data.results[0];
+  console.log(`\n✅ Using top result: ${place.name} - ${place.formatted_address}`);
   console.log('=== END PLACES API ===\n');
 
   return {
@@ -239,6 +238,66 @@ async function findPlaceByTextSearch(query, options = {}) {
     types: place.types,
     source: 'Places API'
   };
+}
+
+/**
+ * Find the nearest places matching a query using Places Nearby Search.
+ * Used for "nearest Starbucks", "closest gas station", etc.
+ * @param {string} keyword - Business name or place type to search for
+ * @param {Object} location - The user's current location { lat, lng }
+ * @param {number} limit - Max number of results to return (default 5)
+ * @returns {Promise<Array>} - Array of nearest places sorted by distance
+ */
+export async function findNearestPlaces(keyword, location, limit = 5) {
+  if (!location || !Number.isFinite(location.lat) || !Number.isFinite(location.lng)) {
+    throw new Error('User location is required to find nearest places');
+  }
+
+  const params = {
+    keyword: keyword,
+    location: `${location.lat},${location.lng}`,
+    rankby: 'distance',
+    key: process.env.GOOGLE_MAPS_API_KEY
+  };
+
+  console.log('\n=== 📍 NEARBY SEARCH API CALL ===');
+  console.log('Keyword:', keyword);
+  console.log('Location:', `${location.lat}, ${location.lng}`);
+
+  const response = await mapsClient.placesNearby({ params });
+
+  const results = response.data.results || [];
+  console.log(`📊 Nearby Search Response: Found ${results.length} results`);
+
+  if (results.length === 0) {
+    console.log('❌ No nearby places found');
+    console.log('=== END NEARBY SEARCH ===\n');
+    throw new Error(`No nearby places found for: ${keyword}`);
+  }
+
+  const candidates = results.slice(0, limit).map((place, idx) => {
+    const dist = calculateDistance(
+      location.lat, location.lng,
+      place.geometry.location.lat, place.geometry.location.lng
+    );
+    console.log(`  ${idx + 1}. ${place.name} — ${place.vicinity} (${dist.toFixed(2)}km)`);
+    return {
+      lat: place.geometry.location.lat,
+      lng: place.geometry.location.lng,
+      formattedAddress: place.vicinity || place.name,
+      placeId: place.place_id,
+      name: place.name,
+      rating: place.rating,
+      types: place.types,
+      distance: dist,
+      source: `Nearby Search (#${idx + 1}, ${dist.toFixed(1)}km away)`
+    };
+  });
+
+  console.log(`✅ Returning top ${candidates.length} nearest candidates`);
+  console.log('=== END NEARBY SEARCH ===\n');
+
+  return candidates;
 }
 
 /**
@@ -595,7 +654,19 @@ async function resolvePlacesPrimaryStrategy(query, geocodingOptions, stopInfo, i
   }
 
   if (geocoded) {
-    const hasMultipleGeocodingCandidates = (geocoded.allResults?.length || 1) > 1;
+    let hasMultipleGeocodingCandidates = false;
+    if ((geocoded.allResults?.length || 0) > 1) {
+      const first = geocoded.allResults[0];
+      const maxSpread = geocoded.allResults.slice(1).reduce((max, r) => {
+        const d = calculateDistance(first.lat, first.lng, r.lat, r.lng);
+        return Math.max(max, d);
+      }, 0);
+      hasMultipleGeocodingCandidates = maxSpread > 1;
+      if (!hasMultipleGeocodingCandidates) {
+        console.log(`Multiple geocoding results but all within ${maxSpread.toFixed(2)}km — not flagging`);
+      }
+    }
+
     if (hasMultipleGeocodingCandidates || geocoded.distanceWarning) {
       const reasons = [];
       if (hasMultipleGeocodingCandidates) reasons.push('Multiple geocoding matches were found');
@@ -634,7 +705,22 @@ async function resolveAddressStrategy(query, geocodingOptions, stopInfo, isStruc
   const validationVerdict = validated?.validationVerdict || null;
   const hasIncompleteAddress = validationVerdict?.addressComplete === false;
   const hasUnconfirmedComponents = validationVerdict?.hasUnconfirmedComponents === true;
-  const hasMultipleCandidates = (geocoded?.allResults?.length || (geocoded ? 1 : 0)) > 1;
+  // Multiple candidates only matter if they're genuinely far apart AND the APIs disagree.
+  // If all candidates cluster near the same spot, the first result is almost certainly correct.
+  let hasMultipleCandidates = false;
+  if ((geocoded?.allResults?.length || 0) > 1) {
+    const first = geocoded.allResults[0];
+    const maxSpread = geocoded.allResults.slice(1).reduce((max, r) => {
+      const d = calculateDistance(first.lat, first.lng, r.lat, r.lng);
+      return Math.max(max, d);
+    }, 0);
+    // Only flag if candidates are more than 1km apart
+    hasMultipleCandidates = maxSpread > 1;
+    if (!hasMultipleCandidates) {
+      console.log(`Multiple geocoding results but all within ${maxSpread.toFixed(2)}km — not flagging`);
+    }
+  }
+
   const farFromExpectedLocation = Boolean(validated?.distanceWarning || geocoded?.distanceWarning);
   let hasApiDisagreement = false;
   let apiDistance = 0;
@@ -643,6 +729,12 @@ async function resolveAddressStrategy(query, geocodingOptions, stopInfo, isStruc
     apiDistance = calculateDistance(validated.lat, validated.lng, geocoded.lat, geocoded.lng);
     hasApiDisagreement = apiDistance > 1;
     console.log(`Address strategy comparison distance: ${apiDistance.toFixed(2)}km`);
+
+    // If both APIs agree (< 1km), skip multiple-candidates flag — the address is confirmed
+    if (!hasApiDisagreement && hasMultipleCandidates) {
+      console.log(`APIs agree (${apiDistance.toFixed(2)}km apart) — suppressing multiple-candidates flag`);
+      hasMultipleCandidates = false;
+    }
   }
 
   const needsAddressClarification = (
@@ -713,7 +805,19 @@ async function resolveHybridStrategy(query, geocodingOptions, stopInfo, isStruct
   geocoded = useDistanceGuard ? applyDistanceWarning(geocoded, context.nearLocation, 'Geocoding result') : geocoded;
   places = useDistanceGuard ? applyDistanceWarning(places, context.nearLocation, 'Places result') : places;
 
-  const hasMultipleGeocodingCandidates = (geocoded?.allResults?.length || (geocoded ? 1 : 0)) > 1;
+  let hasMultipleGeocodingCandidates = false;
+  if ((geocoded?.allResults?.length || 0) > 1) {
+    const first = geocoded.allResults[0];
+    const maxSpread = geocoded.allResults.slice(1).reduce((max, r) => {
+      const d = calculateDistance(first.lat, first.lng, r.lat, r.lng);
+      return Math.max(max, d);
+    }, 0);
+    hasMultipleGeocodingCandidates = maxSpread > 1;
+    if (!hasMultipleGeocodingCandidates) {
+      console.log(`Multiple geocoding results but all within ${maxSpread.toFixed(2)}km — not flagging`);
+    }
+  }
+
   const farFromExpectedLocation = Boolean(geocoded?.distanceWarning || places?.distanceWarning);
   let hasApiDisagreement = false;
   let apiDistance = 0;
@@ -722,6 +826,11 @@ async function resolveHybridStrategy(query, geocodingOptions, stopInfo, isStruct
     apiDistance = calculateDistance(geocoded.lat, geocoded.lng, places.lat, places.lng);
     hasApiDisagreement = apiDistance > 1;
     console.log(`Hybrid strategy comparison distance: ${apiDistance.toFixed(2)}km`);
+
+    if (!hasApiDisagreement && hasMultipleGeocodingCandidates) {
+      console.log(`APIs agree (${apiDistance.toFixed(2)}km apart) — suppressing multiple-candidates flag`);
+      hasMultipleGeocodingCandidates = false;
+    }
   }
 
   const needsClarification = (

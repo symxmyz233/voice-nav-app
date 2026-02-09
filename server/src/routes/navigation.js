@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { extractStopsFromAudio } from '../services/gemini.js';
-import { getMultiStopRoute, geocodeLocation } from '../services/maps.js';
+import { getMultiStopRoute, geocodeLocation, findNearestPlaces } from '../services/maps.js';
 import { isValidEmail, sendRouteEmail } from '../services/email.js';
 import {
   findNearbyCoffeeShops,
@@ -312,6 +312,9 @@ router.post('/process-voice', optionalAuth, upload.single('audio'), async (req, 
           finalStops = [currentLocationStop, ...finalStops];
           console.log('needsCurrentLocation=true — prepended current location as origin');
         } else {
+          console.error('needsCurrentLocation=true but userLocation is missing.');
+          console.error('  req.body.userLocation raw value:', req.body.userLocation);
+          console.error('  Parsed userLocation variable:', userLocation);
           return res.status(400).json({
             error: 'This command requires location access. Please enable location services or specify a starting point (e.g. "Navigate from A to B").'
           });
@@ -524,7 +527,88 @@ router.post('/process-voice', optionalAuth, upload.single('audio'), async (req, 
       }
     }
 
-    // Step 2.5: Check confidence levels - if any stop has confidence < 0.9, ask for confirmation
+    // Step 2.5a: Handle nearestSearch stops — query Places API for the 5 nearest candidates
+    const nearestSearchStops = finalStops.filter(stop => stop.nearestSearch === true);
+    if (nearestSearchStops.length > 0) {
+      const searchLocation = geocodingContext?.userLocation || geocodingContext?.routeMidpoint || null;
+      if (!searchLocation) {
+        console.warn('⚠️ nearestSearch stops found but no user location available');
+      }
+
+      for (let i = 0; i < finalStops.length; i++) {
+        const stop = finalStops[i];
+        if (!stop.nearestSearch) continue;
+
+        const keyword = stop.parsed?.businessName || stop.searchQuery || stop.original;
+        // Use the previous stop's geocoded location (better for mid-route "nearest X")
+        let searchFrom = searchLocation;
+        if (i > 0) {
+          const prev = finalStops[i - 1];
+          // If the previous stop hasn't been geocoded yet, geocode it now
+          if (!Number.isFinite(Number(prev.lat)) || !Number.isFinite(Number(prev.lng))) {
+            try {
+              const query = prev.searchQuery || prev.original || prev.name;
+              console.log(`📍 Pre-geocoding previous stop "${query}" for nearest search context`);
+              const geocoded = await geocodeLocation(query);
+              prev.lat = geocoded.lat;
+              prev.lng = geocoded.lng;
+              prev.formattedAddress = geocoded.formattedAddress;
+              prev.placeId = geocoded.placeId;
+              prev.name = geocoded.name || prev.name;
+            } catch (err) {
+              console.log(`⚠️ Failed to pre-geocode previous stop: ${err.message}`);
+            }
+          }
+          if (Number.isFinite(Number(prev.lat)) && Number.isFinite(Number(prev.lng))) {
+            searchFrom = { lat: Number(prev.lat), lng: Number(prev.lng) };
+          }
+        }
+
+        if (!searchFrom) {
+          console.log(`⚠️ Skipping nearest search for "${keyword}" — no location reference`);
+          continue;
+        }
+
+        try {
+          console.log(`🔍 Nearest search for "${keyword}" near (${searchFrom.lat.toFixed(4)}, ${searchFrom.lng.toFixed(4)})`);
+          const candidates = await findNearestPlaces(keyword, searchFrom, 5);
+
+          stop.hasAlternatives = true;
+          stop.alternativeResults = candidates;
+          stop.needsConfirmation = true;
+          stop.confirmationReason = `Please select the nearest ${keyword}`;
+          // Pre-fill with the closest candidate
+          if (candidates.length > 0) {
+            stop.lat = candidates[0].lat;
+            stop.lng = candidates[0].lng;
+            stop.formattedAddress = candidates[0].formattedAddress;
+            stop.placeId = candidates[0].placeId;
+            stop.name = candidates[0].name;
+          }
+        } catch (err) {
+          console.log(`⚠️ Nearest search failed for "${keyword}":`, err.message);
+        }
+      }
+
+      // If any nearestSearch stop now needs confirmation, return for user selection
+      const nearestConfirmIndexes = finalStops
+        .map((s, idx) => (s.nearestSearch && s.hasAlternatives) ? idx : -1)
+        .filter(idx => idx >= 0);
+
+      if (nearestConfirmIndexes.length > 0) {
+        return res.json({
+          success: true,
+          needsConfirmation: true,
+          transcript: geminiResult.transcript || null,
+          commandType: geminiResult.commandType || 'new_route',
+          stops: finalStops,
+          confirmationStopIndexes: nearestConfirmIndexes,
+          message: 'Please select the nearest location for each stop'
+        });
+      }
+    }
+
+    // Step 2.5b: Check confidence levels - if any stop has confidence < 0.9, ask for confirmation
     const CONFIDENCE_THRESHOLD = 0.9;
     const lowConfidenceStops = finalStops.filter(stop =>
       stop.confidence !== undefined && stop.confidence < CONFIDENCE_THRESHOLD

@@ -39,9 +39,6 @@ Return ONLY a valid JSON object in this exact format, with no additional text:
 {
   "transcript": "the full transcription of what the user said",
   "commandType": "new_route|add_stop|insert_stop|replace_stop",
-  "nearbySearch": false,
-  "addCoffeeShop": false,
-  "coffeeShopPreference": null,
   "needsCurrentLocation": true or false,
   "stops": [
     {
@@ -59,7 +56,8 @@ Return ONLY a valid JSON object in this exact format, with no additional text:
       },
       "searchQuery": "optimized string for Google Maps geocoding",
       "confidence": 0.0 to 1.0,
-      "via": false
+      "via": false,
+      "nearestSearch": false
     }
   ],
 
@@ -140,53 +138,26 @@ Location Guidelines:
 - If unsure about a component, leave it null
 - Confidence scale: 1.0 = certain, 0.7 = fairly confident, 0.5 = ambiguous, 0.3 = guessing
 
-NEARBY COFFEE SHOP DETECTION:
-If the user is ONLY asking to find a nearby coffee shop (not part of a route):
-- "find nearest coffee shop", "coffee shop near me", "I need coffee nearby", "where can I get coffee", etc.
-- Set "nearbySearch": true
-- Set "addCoffeeShop": false
-- Set "stops": [] (empty array — there is no route)
-- Do NOT set addCoffeeShop — that is for route-integrated coffee stops only.
-
-Key difference:
-- nearbySearch = standalone "find me coffee NOW" (no origin/destination mentioned)
-- addCoffeeShop = "add coffee to my planned route" (has origin/destination in stops)
-
+NEAREST / MOST NEARBY BUSINESS AS A STOP:
+When the user mentions "nearest X", "closest X", "most nearby X", or "X near me" as a DESTINATION or STOP in a route:
+- Treat it as a regular stop with type="landmark" and populate businessName
+- Set "nearestSearch": true on that stop — this tells the backend to find the closest matching location
+- Keep searchQuery as just the business/place name (e.g., "Starbucks", "gas station") without "nearest"/"closest" qualifiers
 Examples:
-- "Find nearest coffee shop" → nearbySearch: true, stops: []
-- "Coffee shop near me" → nearbySearch: true, stops: []
-- "I need coffee" → nearbySearch: true, stops: []
-- "Navigate to NYC and stop for coffee" → nearbySearch: false, addCoffeeShop: true, stops: [...]
+- "Go to the nearest Starbucks" → commandType="new_route", needsCurrentLocation=true, stops: [{type="landmark", businessName="Starbucks", searchQuery="Starbucks", original="nearest Starbucks", nearestSearch=true}]
+- "Add the most nearby Target" → commandType="add_stop", stops: [{type="landmark", businessName="Target", searchQuery="Target", nearestSearch=true}]
+- "Navigate to the closest gas station" → commandType="new_route", needsCurrentLocation=true, stops: [{type="landmark", businessName="gas station", searchQuery="gas station", nearestSearch=true}]
+- "Drive from Edison to the nearest Walmart" → commandType="new_route", stops: [{Edison origin, nearestSearch=false}, {type="landmark", businessName="Walmart", searchQuery="Walmart", nearestSearch=true}]
+- "Go to Starbucks" (no "nearest"/"closest") → nearestSearch=false (user just wants any Starbucks, normal geocoding)
 
-COFFEE SHOP / CAFE DETECTION:
-If the user mentions wanting to stop at a coffee shop, cafe, Starbucks, Dunkin, or any coffee-related place along their route:
-- Set "addCoffeeShop": true
-- Set "coffeeShopPreference" to one of:
-  - "midpoint" (default - stop somewhere in the middle of the route)
-  - "near_origin" (if they say "before I leave", "near the start", "on my way out", etc.)
-  - "near_destination" (if they say "near the end", "before I arrive", "close to destination", etc.)
-- Do NOT include the coffee shop as a regular stop in the "stops" array
-- Only include the actual origin/destination locations in "stops"
-- If the user mentions a specific brand (e.g., "Starbucks", "Dunkin"), append it after a colon, e.g. "midpoint:starbucks" or "near_origin:dunkin"
+COFFEE SHOPS / CAFES AS STOPS:
+Always treat coffee shops, cafes, Starbucks, Dunkin, etc. as regular stops in the "stops" array — just like any other business or landmark.
+- "Go to Starbucks" → commandType: "new_route", needsCurrentLocation: true, stops: [{type="landmark", businessName="Starbucks", searchQuery="Starbucks", nearestSearch=true}]
+- "Navigate from Edison to NYC and stop at Starbucks" → commandType: "new_route", stops: [{Edison}, {type="landmark", businessName="Starbucks", searchQuery="Starbucks", nearestSearch=true}, {NYC}]
+- "Add a Starbucks stop" → commandType: "add_stop", stops: [{type="landmark", businessName="Starbucks", searchQuery="Starbucks", nearestSearch=true}]
+- "Find nearest coffee shop" → commandType: "new_route", needsCurrentLocation: true, stops: [{type="landmark", businessName="coffee shop", searchQuery="coffee shop", nearestSearch=true}]
+- "I need coffee on the way to the airport" → commandType: "new_route", needsCurrentLocation: true, stops: [{type="landmark", businessName="coffee shop", searchQuery="coffee shop", nearestSearch=true}, {airport stop}]
 
-SEMANTIC ANALYSIS for choosing coffeeShopPreference:
-Analyze temporal keywords and context clues in the user's speech:
-- "before heading out", "on my way out", "first thing" → near_origin
-- "before I get there", "near the end", "before arriving" → near_destination
-- "on the way", "along the route", "in between", "during the drive" → midpoint
-- "coffee before my meeting" where the meeting is at the destination → near_destination
-- "coffee after my meeting" where they're leaving a meeting → near_origin
-- "quick coffee" with a short trip context → near_origin (grab-and-go)
-- No clear indicators → midpoint (the app will refine based on route duration)
-
-Examples:
-- "Navigate from Piscataway to Manhattan and add a Starbucks on the way" → addCoffeeShop: true, coffeeShopPreference: "midpoint:starbucks"
-- "Go from home to work, stop at a coffee shop" → addCoffeeShop: true, coffeeShopPreference: "midpoint"
-- "Drive to NYC and grab coffee near the start" → addCoffeeShop: true, coffeeShopPreference: "near_origin"
-- "Head to Boston, get coffee before arriving" → addCoffeeShop: true, coffeeShopPreference: "near_destination"
-- "I need a coffee shop on my way to the airport" → addCoffeeShop: true, coffeeShopPreference: "near_origin" (time-sensitive, grab early)
-- "Find me coffee on the drive from Boston to NYC" → addCoffeeShop: true, coffeeShopPreference: "midpoint" (long drive, natural break)
-- "Get coffee after my meeting, before heading home" → addCoffeeShop: true, coffeeShopPreference: "near_origin"
 Via / Pass-Through Waypoint Guidelines:
 - If the user says "via X", "through X", "take X", "use X", or "go over X"
   for an intermediate location, set "via": true for that stop.
@@ -237,6 +208,15 @@ If you cannot understand the audio or no locations are mentioned, return:
       if (result.needsCurrentLocation === undefined) {
         // Default: need current location if new_route with no explicit origin
         result.needsCurrentLocation = result.commandType === 'new_route';
+      }
+
+      // Ensure nearestSearch defaults to false for each stop
+      if (Array.isArray(result.stops)) {
+        for (const stop of result.stops) {
+          if (stop.nearestSearch === undefined) {
+            stop.nearestSearch = false;
+          }
+        }
       }
 
       return result;

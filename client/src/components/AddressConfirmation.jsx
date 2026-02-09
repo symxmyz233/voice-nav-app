@@ -377,11 +377,7 @@ function AddressConfirmation({ stops, confirmationStopIndexes = [], transcript, 
                 </div>
               </div>
 
-              {stop.type && (
-                <div className="stop-type-info">
-                  Type: {stop.type}
-                </div>
-              )}
+
 
               {/* Show alternative geocoding results if available */}
               {stop.hasAlternatives && stop.alternativeResults && (
@@ -405,10 +401,15 @@ function AddressConfirmation({ stops, confirmationStopIndexes = [], transcript, 
                         />
                         <div className="alternative-details">
                           <div className="alternative-source">{alt.source}</div>
+                          {alt.name && <div className="alternative-name">{alt.name}</div>}
                           <div className="alternative-address">{alt.formattedAddress}</div>
-                          <div className="alternative-coords">
-                            📍 {alt.lat.toFixed(6)}, {alt.lng.toFixed(6)}
-                          </div>
+                          {typeof alt.distance === 'number' && (
+                            <div className="alternative-distance">
+                              {alt.distance < 1
+                                ? `${(alt.distance * 1000).toFixed(0)}m away`
+                                : `${alt.distance.toFixed(1)}km away`}
+                            </div>
+                          )}
                           {alt.distanceWarning && (
                             <div className="distance-warning">
                               ⚠️ {alt.distanceWarning.distance.toFixed(1)}km from expected location

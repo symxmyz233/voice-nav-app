@@ -156,35 +156,34 @@ function AppContent() {
   const locationWatchIdRef = useRef(null);
   const [transcript, setTranscript] = useState(null);
 
+  // Load last route from server on mount.
+  // For authenticated users we try history first; for guests we use the file cache.
+  // Both are fetched once auth state is known so only ONE source wins (no race).
   useEffect(() => {
-    const maskSecret = (value) => {
-      if (!value) return 'missing';
-      const str = String(value);
-      if (str.length <= 8) return `len=${str.length}`;
-      return `${str.slice(0, 6)}...${str.slice(-4)} (len=${str.length})`;
-    };
+    if (authLoading) return; // wait until we know if user is logged in
 
-    console.log('=== Frontend API Config ===');
-    console.log('VITE_API_URL:', API_BASE_URL);
-    console.log('VITE_GOOGLE_MAPS_API_KEY:', maskSecret(GOOGLE_MAPS_API_KEY));
-    console.log('=== End Frontend API Config ===');
-
-    // Load last route + transcript.
     if (isAuthenticated) {
-      fetch(`${API_BASE_URL}/history?limit=1`, {
-        credentials: 'include'
-      })
+      // Try history first; fall back to server cache if history is empty
+      fetch(`${API_BASE_URL}/history?limit=1`, { credentials: 'include' })
         .then((res) => res.json())
         .then((data) => {
-          if (data.success && data.history?.[0]) {
-            setRouteData(data.history[0].route || null);
-            if (data.history[0].transcript) {
-              setTranscript(data.history[0].transcript);
-            }
+          const historyRoute = data.success && data.history?.[0]?.route;
+          if (historyRoute) {
+            setRouteData(historyRoute);
+            if (data.history[0].transcript) setTranscript(data.history[0].transcript);
+            return;
           }
+          // History empty — fall back to server file cache
+          return fetch(`${API_BASE_URL}/last-route`)
+            .then((res) => res.json())
+            .then((cacheData) => {
+              if (cacheData.route) setRouteData(cacheData.route);
+              if (cacheData.transcript) setTranscript(cacheData.transcript);
+            });
         })
         .catch(() => {});
     } else {
+      // Guest — use server file cache directly
       fetch(`${API_BASE_URL}/last-route`)
         .then((res) => res.json())
         .then((data) => {
@@ -198,19 +197,16 @@ function AppContent() {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          const location = {
+          setUserLocation({
             lat: position.coords.latitude,
             lng: position.coords.longitude
-          };
-          setUserLocation(location);
-          console.log('User location obtained:', location);
+          });
         },
-        (err) => {
-          console.warn('Failed to get user location:', err.message);
-        }
+        (err) => console.warn('Initial geolocation failed:', err.code, err.message),
+        { enableHighAccuracy: false, timeout: 10000, maximumAge: 60_000 }
       );
     }
-  }, [isAuthenticated]);
+  }, [authLoading, isAuthenticated]);
 
   useEffect(() => {
     if (!statusMessage) return;

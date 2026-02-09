@@ -356,16 +356,23 @@
   margin-bottom: 4px;
 }
 
-.alternative-address {
+.alternative-name {
   font-size: 0.9rem;
-  color: #1f2937;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 2px;
+}
+
+.alternative-address {
+  font-size: 0.85rem;
+  color: #4b5563;
   margin-bottom: 4px;
 }
 
-.alternative-coords {
+.alternative-distance {
   font-size: 0.75rem;
-  color: #6b7280;
-  font-family: monospace;
+  font-weight: 500;
+  color: #059669;
 }
 
 .distance-warning {
