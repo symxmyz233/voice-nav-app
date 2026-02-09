@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { API_BASE_URL } from '../config/api';
 
 function RouteEmailShare({ route }) {
   const [email, setEmail] = useState('');
@@ -27,11 +28,12 @@ function RouteEmailShare({ route }) {
     setErrorMessage('');
 
     try {
-      const response = await fetch('/api/send-route-email', {
+      const response = await fetch(`${API_BASE_URL}/send-route-email`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify({
           email: effectiveEmail.trim(),
           route

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_BASE_URL } from '../config/api';
 
 function VoiceBufferList({ onResult, onError, onLoadingChange, userLocation = null }) {
   const [buffers, setBuffers] = useState([]);
@@ -7,7 +8,7 @@ function VoiceBufferList({ onResult, onError, onLoadingChange, userLocation = nu
   const [sendingFile, setSendingFile] = useState(null);
 
   useEffect(() => {
-    fetch('/api/voice-buffers')
+    fetch(`${API_BASE_URL}/voice-buffers`, { credentials: 'include' })
       .then((res) => res.json())
       .then((data) => {
         if (data.success) {
@@ -25,7 +26,7 @@ function VoiceBufferList({ onResult, onError, onLoadingChange, userLocation = nu
     onLoadingChange(true);
 
     try {
-      const audioRes = await fetch(`/api/voice-buffers/${encodeURIComponent(filename)}`);
+      const audioRes = await fetch(`${API_BASE_URL}/voice-buffers/${encodeURIComponent(filename)}`, { credentials: 'include' });
       if (!audioRes.ok) throw new Error('Failed to fetch audio file');
       const audioBlob = await audioRes.blob();
 
@@ -39,7 +40,7 @@ function VoiceBufferList({ onResult, onError, onLoadingChange, userLocation = nu
         formData.append('userLocation', JSON.stringify({ lat, lng }));
       }
 
-      const response = await fetch('/api/process-voice', {
+      const response = await fetch(`${API_BASE_URL}/process-voice`, {
         method: 'POST',
         credentials: 'include',
         body: formData,
@@ -69,8 +70,9 @@ function VoiceBufferList({ onResult, onError, onLoadingChange, userLocation = nu
   const handleDelete = async (filename) => {
     if (!window.confirm(`Delete "${filename}"?`)) return;
     try {
-      const res = await fetch(`/api/voice-buffers/${encodeURIComponent(filename)}`, {
+      const res = await fetch(`${API_BASE_URL}/voice-buffers/${encodeURIComponent(filename)}`, {
         method: 'DELETE',
+        credentials: 'include',
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete recording');
@@ -127,7 +129,8 @@ function VoiceBufferList({ onResult, onError, onLoadingChange, userLocation = nu
               <audio
                 controls
                 preload="none"
-                src={`/api/voice-buffers/${encodeURIComponent(buf.filename)}`}
+                src={`${API_BASE_URL}/voice-buffers/${encodeURIComponent(buf.filename)}`}
+                crossOrigin="use-credentials"
               />
               <button
                 className="voice-buffer-send"

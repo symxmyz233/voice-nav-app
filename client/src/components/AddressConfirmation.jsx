@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { API_BASE_URL } from '../config/api';
 import './AddressConfirmation.css';
 
 function AddressConfirmation({ stops, confirmationStopIndexes = [], transcript, onConfirm, onCancel }) {
@@ -114,8 +115,9 @@ function AddressConfirmation({ stops, confirmationStopIndexes = [], transcript, 
       const formData = new FormData();
       formData.append('audio', audioBlob, 'reconfirm-stop.webm');
 
-      const response = await fetch('/api/reconfirm-stop', {
+      const response = await fetch(`${API_BASE_URL}/reconfirm-stop`, {
         method: 'POST',
+        credentials: 'include',
         body: formData
       });
 

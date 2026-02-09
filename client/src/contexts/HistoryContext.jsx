@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
+import { API_BASE_URL } from '../config/api';
 
 const HistoryContext = createContext(null);
 
@@ -26,7 +27,7 @@ export function HistoryProvider({ children }) {
 
     try {
       setLoading(true);
-      const response = await fetch('/api/history?limit=20', {
+      const response = await fetch(`${API_BASE_URL}/history?limit=20`, {
         credentials: 'include'
       });
       const data = await response.json();
@@ -45,7 +46,7 @@ export function HistoryProvider({ children }) {
     if (!isAuthenticated) return;
 
     try {
-      const response = await fetch('/api/history/recent-destinations?limit=10', {
+      const response = await fetch(`${API_BASE_URL}/history/recent-destinations?limit=10`, {
         credentials: 'include'
       });
       const data = await response.json();

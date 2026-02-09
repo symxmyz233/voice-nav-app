@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { API_BASE_URL } from '../config/api';
 
 function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null, userLocation = null }) {
   const [isRecording, setIsRecording] = useState(false);
@@ -69,7 +70,7 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
         console.log('✅ User location added to FormData:', locationHint);
       }
 
-      const response = await fetch('/api/process-voice', {
+      const response = await fetch(`${API_BASE_URL}/process-voice`, {
         method: 'POST',
         credentials: 'include',
         body: formData

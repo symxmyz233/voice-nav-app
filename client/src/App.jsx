@@ -18,9 +18,9 @@ import RecentPlacesList from './components/RecentPlacesList';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { HistoryProvider, useHistory } from './contexts/HistoryContext';
 import { RecentPlacesProvider, useRecentPlaces } from './contexts/RecentPlacesContext';
+import { API_BASE_URL } from './config/api';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 const libraries = ['places', 'geometry'];
 
@@ -174,7 +174,7 @@ function AppContent() {
             return;
           }
           // History empty — fall back to server file cache
-          return fetch(`${API_BASE_URL}/last-route`)
+          return fetch(`${API_BASE_URL}/last-route`, { credentials: 'include' })
             .then((res) => res.json())
             .then((cacheData) => {
               if (cacheData.route) setRouteData(cacheData.route);
@@ -184,7 +184,7 @@ function AppContent() {
         .catch(() => {});
     } else {
       // Guest — use server file cache directly
-      fetch(`${API_BASE_URL}/last-route`)
+      fetch(`${API_BASE_URL}/last-route`, { credentials: 'include' })
         .then((res) => res.json())
         .then((data) => {
           if (data.route) setRouteData(data.route);
@@ -577,7 +577,7 @@ function AppContent() {
     }
 
     try {
-      const response = await fetch('/api/route', {
+      const response = await fetch(`${API_BASE_URL}/route`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

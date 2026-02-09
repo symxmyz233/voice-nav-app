@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+import { API_BASE_URL } from '../config/api';
 
 /**
  * Find and get recommended coffee shops near a location or along a route
@@ -85,6 +85,7 @@ export async function searchCoffeeShops(options = {}) {
       headers: {
         'Content-Type': 'application/json'
       },
+      credentials: 'include',
       body: JSON.stringify(requestBody)
     });
 
