@@ -98,15 +98,28 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
     }
   }, [map, route, normalizedStops, decodedPath]);
 
-  const getMarkerLabel = (index, total) => {
-    if (index === 0) return 'A';
-    if (index === total - 1) return String.fromCharCode(65 + index);
-    return String.fromCharCode(65 + index);
+  // Compute letter labels that skip via stops
+  const stopLetters = useMemo(() => {
+    let letterIdx = 0;
+    return normalizedStops.map(stop =>
+      stop.via ? null : String.fromCharCode(65 + letterIdx++)
+    );
+  }, [normalizedStops]);
+
+  const getMarkerLabel = (index) => {
+    if (normalizedStops[index]?.via) return '~';
+    return stopLetters[index] || String.fromCharCode(65 + index);
   };
 
   const getMarkerIcon = (index, total) => {
+    const stop = normalizedStops[index];
     let color;
-    if (index === 0) {
+    let scale = 10;
+
+    if (stop?.via) {
+      color = '#8b5cf6'; // purple for via
+      scale = 10;
+    } else if (index === 0) {
       color = '#22c55e'; // green for start
     } else if (index === total - 1) {
       color = '#ef4444'; // red for end
@@ -115,7 +128,7 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
     }
 
     const symbolPath = window.google?.maps?.SymbolPath?.CIRCLE;
-    if (!symbolPath) return undefined;
+    if (symbolPath == null) return undefined;
 
     return {
       path: symbolPath,
@@ -123,14 +136,14 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
       fillOpacity: 1,
       strokeColor: '#ffffff',
       strokeWeight: 2,
-      scale: 10
+      scale
     };
   };
 
   // Get coffee shop marker icon
   const getCoffeeShopMarkerIcon = (rating) => {
     const symbolPath = window.google?.maps?.SymbolPath?.CIRCLE;
-    if (!symbolPath) return undefined;
+    if (symbolPath == null) return undefined;
 
     const hue = Math.min(100, (rating / 5) * 120); // From red to green
     return {
@@ -257,7 +270,7 @@ function MapDisplay({ route, onCoffeeShopsFound }) {
             key={`${stop.name}-${index}`}
             position={{ lat: stop.lat, lng: stop.lng }}
             label={{
-              text: getMarkerLabel(index, normalizedStops.length),
+              text: getMarkerLabel(index),
               color: '#ffffff',
               fontWeight: 'bold',
               fontSize: '12px'

@@ -186,7 +186,7 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
         <p style={{ fontSize: '0.8rem', color: '#9ca3af', marginTop: '10px' }}>
           {currentRoute
             ? 'Examples: "Add a stop at Times Square" or "Add Starbucks between stop 1 and 2"'
-            : 'Example: "Navigate from San Francisco to Los Angeles with a stop in San Jose"'}
+            : 'Examples: "Go to Times Square" or "Navigate from San Francisco to Los Angeles"'}
         </p>
       )}
     </div>

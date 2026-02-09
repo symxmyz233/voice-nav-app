@@ -26,13 +26,14 @@ function sanitizeStopsForCache(stops = []) {
   });
 }
 
-async function writeRouteCache(route, source, stops = []) {
+async function writeRouteCache(route, source, stops = [], transcript = null) {
   const payload = {
     version: ROUTE_CACHE_VERSION,
     updatedAt: new Date().toISOString(),
     source,
     stops: sanitizeStopsForCache(stops),
-    route
+    route,
+    transcript: transcript || null
   };
 
   const tempPath = `${ROUTE_CACHE_PATH}.${process.pid}.${Date.now()}.tmp`;
@@ -49,7 +50,8 @@ function normalizeCachePayload(raw) {
       updatedAt: raw.updatedAt || null,
       source: raw.source || 'unknown',
       stops: Array.isArray(raw.stops) ? raw.stops : [],
-      route: raw.route
+      route: raw.route,
+      transcript: raw.transcript || null
     };
   }
 
@@ -58,7 +60,8 @@ function normalizeCachePayload(raw) {
     updatedAt: null,
     source: 'legacy',
     stops: [],
-    route: raw || null
+    route: raw || null,
+    transcript: null
   };
 }
 
@@ -265,8 +268,39 @@ router.post('/process-voice', optionalAuth, upload.single('audio'), async (req, 
     const commandType = geminiResult.commandType || 'new_route';
 
     if (commandType === 'new_route') {
-      // New route - use stops as-is
       finalStops = geminiResult.stops;
+
+      // Prepend current location when user didn't specify a starting point
+      // (e.g., "Go to X", "Go to X with a stop at Y")
+      if (geminiResult.needsCurrentLocation) {
+        if (userLocation) {
+          const currentLocationStop = {
+            original: 'Current Location',
+            type: 'current_location',
+            parsed: {
+              streetNumber: null,
+              streetName: null,
+              city: null,
+              state: null,
+              country: null,
+              postalCode: null,
+              landmark: null,
+              businessName: null
+            },
+            searchQuery: `${userLocation.lat},${userLocation.lng}`,
+            confidence: 1.0,
+            lat: userLocation.lat,
+            lng: userLocation.lng
+          };
+          finalStops = [currentLocationStop, ...finalStops];
+          console.log('needsCurrentLocation=true — prepended current location as origin');
+        } else {
+          return res.status(400).json({
+            error: 'This command requires location access. Please enable location services or specify a starting point (e.g. "Navigate from A to B").'
+          });
+        }
+      }
+
       console.log('Creating new route with', finalStops.length, 'stops');
     } else if (commandType === 'add_stop' || commandType === 'insert_stop') {
       // Modify existing route
@@ -437,6 +471,10 @@ router.post('/process-voice', optionalAuth, upload.single('audio'), async (req, 
       }
     }
 
+    // Origin and destination can never be via
+    if (finalStops.length > 0) finalStops[0].via = false;
+    if (finalStops.length > 1) finalStops[finalStops.length - 1].via = false;
+
     console.log('Final stops array:', finalStops.map(s => s.original || s.searchQuery));
 
     // Step 2.5: Check confidence levels - if any stop has confidence < 0.9, ask for confirmation
@@ -548,7 +586,7 @@ router.post('/process-voice', optionalAuth, upload.single('audio'), async (req, 
     };
 
     try {
-      const cacheMeta = await writeRouteCache(routeData, 'process-voice', geminiResult.stops);
+      const cacheMeta = await writeRouteCache(routeData, 'process-voice', geminiResult.stops, geminiResult.transcript);
       result.cache = {
         version: cacheMeta.version,
         updatedAt: cacheMeta.updatedAt,
@@ -631,7 +669,7 @@ router.post('/reconfirm-stop', upload.single('audio'), async (req, res) => {
 router.post('/route', optionalAuth, async (req, res) => {
   console.log('\n========== /api/route CALLED ==========');
   try {
-    const { stops } = req.body;
+    const { stops, transcript } = req.body;
 
     console.log('📍 Received stops:', stops.length);
     stops.forEach((stop, i) => {
@@ -678,7 +716,7 @@ router.post('/route', optionalAuth, async (req, res) => {
     let cache = null;
 
     try {
-      const cacheMeta = await writeRouteCache(routeData, 'manual-route', stops);
+      const cacheMeta = await writeRouteCache(routeData, 'manual-route', stops, transcript);
       cache = {
         version: cacheMeta.version,
         updatedAt: cacheMeta.updatedAt,
@@ -798,6 +836,7 @@ router.get('/last-route', async (req, res) => {
     res.json({
       success: true,
       route: cache.route,
+      transcript: cache.transcript || null,
       cache: {
         version: cache.version,
         updatedAt: cache.updatedAt,

@@ -9,6 +9,8 @@ function AddressConfirmation({ stops, confirmationStopIndexes = [], transcript, 
       selectedAlternativeIndex: stop.hasAlternatives ? 0 : null // Default to first option
     }))
   );
+  const [editingStopIndex, setEditingStopIndex] = useState(null);
+  const [editText, setEditText] = useState('');
   const [recordingStopIndex, setRecordingStopIndex] = useState(null);
   const [processingStopIndex, setProcessingStopIndex] = useState(null);
   const [voiceError, setVoiceError] = useState(null);
@@ -33,6 +35,42 @@ function AddressConfirmation({ stops, confirmationStopIndexes = [], transcript, 
     () => editedStops.filter((stop) => confirmationIndexSet.has(stop.originalIndex)),
     [editedStops, confirmationIndexSet]
   );
+
+  const startEditing = (originalIndex, currentText) => {
+    setEditingStopIndex(originalIndex);
+    setEditText(currentText);
+  };
+
+  const cancelEditing = () => {
+    setEditingStopIndex(null);
+    setEditText('');
+  };
+
+  const applyTextEdit = (originalIndex) => {
+    const trimmed = editText.trim();
+    if (!trimmed) return;
+
+    setEditedStops((prev) => {
+      const updated = [...prev];
+      updated[originalIndex] = {
+        ...updated[originalIndex],
+        searchQuery: trimmed,
+        original: trimmed,
+        hasAlternatives: false,
+        alternativeResults: null,
+        selectedAlternativeIndex: null,
+        // Clear stale coordinates so backend re-geocodes
+        lat: undefined,
+        lng: undefined,
+        formattedAddress: undefined,
+        placeId: undefined,
+      };
+      return updated;
+    });
+
+    setEditingStopIndex(null);
+    setEditText('');
+  };
 
   const handleAlternativeSelect = (originalIndex, alternativeIndex) => {
     const updated = [...editedStops];
@@ -262,7 +300,51 @@ function AddressConfirmation({ stops, confirmationStopIndexes = [], transcript, 
 
               <div className="parsed-stop-display">
                 <div className="parsed-stop-label">Parsed Stop</div>
-                <div className="parsed-stop-value">{getParsedAddressText(stop)}</div>
+                {editingStopIndex === stop.originalIndex ? (
+                  <div className="edit-address-section">
+                    <input
+                      type="text"
+                      className="edit-address-input"
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') applyTextEdit(stop.originalIndex);
+                        if (e.key === 'Escape') cancelEditing();
+                      }}
+                      autoFocus
+                      placeholder="Type a new address..."
+                    />
+                    <div className="edit-address-actions">
+                      <button
+                        type="button"
+                        className="edit-address-save"
+                        onClick={() => applyTextEdit(stop.originalIndex)}
+                        disabled={!editText.trim()}
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        className="edit-address-cancel"
+                        onClick={cancelEditing}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="parsed-stop-value-row">
+                    <div className="parsed-stop-value">{getParsedAddressText(stop)}</div>
+                    <button
+                      type="button"
+                      className="edit-address-button"
+                      onClick={() => startEditing(stop.originalIndex, getParsedAddressText(stop))}
+                      title="Edit address"
+                    >
+                      Edit
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="revoice-section">
@@ -287,7 +369,7 @@ function AddressConfirmation({ stops, confirmationStopIndexes = [], transcript, 
                     : 'Speak Stop Again'}
                 </button>
                 <div className="revoice-hint">
-                  Use voice if this parsed stop is wrong.
+                  Or use voice to re-speak this stop.
                 </div>
               </div>
 
