@@ -609,6 +609,7 @@ function AppContent() {
       }
     } catch (err) {
       setError(err.message || 'Failed to confirm addresses');
+      setConfirmationData(null);
     } finally {
       setLoading(false);
     }
@@ -908,17 +909,6 @@ function AppContent() {
             <h1>Voice Navigation Planner</h1>
             <p>Speak your route and see it on the map</p>
           </div>
-          <div className="header-actions">
-            <VoiceRecorder
-              onResult={handleVoiceResult}
-              onError={handleError}
-              onLoadingChange={handleLoadingChange}
-              currentRoute={routeData}
-              userLocation={userLocation}
-              compact
-            />
-            <RouteEmailShare route={routeData} compact />
-          </div>
           <div className="header-right">
             <UserProfile />
             {isAuthenticated && (
@@ -930,11 +920,16 @@ function AppContent() {
 
       <main className="app-main">
         <div className="control-panel">
-          {!routeData && isAuthenticated && (
-            <QuickStartPanel
-              onSelectDestination={handleSelectDestination}
-            />
-          )}
+          <VoiceRecorder
+            onResult={handleVoiceResult}
+            onError={handleError}
+            onLoadingChange={handleLoadingChange}
+            currentRoute={routeData}
+            userLocation={userLocation}
+          />
+
+          {routeData && <RouteEmailShare route={routeData} />}
+
 
           {statusMessage && (
             <div className="success-message" style={{

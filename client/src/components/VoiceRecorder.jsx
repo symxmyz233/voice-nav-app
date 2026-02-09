@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 
-function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null, userLocation = null, compact = false }) {
+function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null, userLocation = null }) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const mediaRecorderRef = useRef(null);
@@ -151,8 +151,8 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
   };
 
   return (
-    <div className={`voice-recorder${compact ? ' voice-recorder--compact' : ''}`}>
-      {!compact && <h2>Voice Input</h2>}
+    <div className="voice-recorder">
+      <h2>Voice Input</h2>
 
       <button
         className={`record-button ${isRecording ? 'recording' : ''}`}
@@ -174,24 +174,19 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
         </svg>
       </button>
 
-      {compact && <p className="compact-hint">Voice Input</p>}
-      {!compact && (
-        <p className={`record-status ${isRecording ? 'recording' : ''}`}>
-          {isProcessing
-            ? 'Processing...'
-            : isRecording
-            ? 'Click to stop'
-            : 'Tap to record'}
-        </p>
-      )}
+      <p className={`record-status ${isRecording ? 'recording' : ''}`}>
+        {isProcessing
+          ? 'Processing...'
+          : isRecording
+          ? 'Click to stop'
+          : 'Tap to record'}
+      </p>
 
-      {!compact && (
-        <p style={{ fontSize: '0.8rem', color: '#9ca3af', marginTop: '10px' }}>
-          {currentRoute
-            ? 'Examples: "Add a stop at Times Square" or "Add Starbucks between stop 1 and 2"'
-            : 'Examples: "Go to Times Square" or "Navigate from San Francisco to Los Angeles"'}
-        </p>
-      )}
+      <p style={{ fontSize: '0.8rem', color: '#9ca3af', marginTop: '10px' }}>
+        {currentRoute
+          ? 'Examples: "Add a stop at Times Square" or "Add Starbucks between stop 1 and 2"'
+          : 'Examples: "Go to Times Square" or "Navigate from San Francisco to Los Angeles"'}
+      </p>
     </div>
   );
 }

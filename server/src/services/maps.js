@@ -821,14 +821,13 @@ export async function geocodeLocation(stopInfo, context = {}) {
       }
 
       if (mismatch.hasMismatch) {
-        console.log(`⚠️ Address text mismatch detected: ${mismatch.reason}`);
+        console.log(`⚠️ Address text mismatch detected (warning only): ${mismatch.reason}`);
         if (result.needsConfirmation) {
           result.confirmationReason += '; ' + mismatch.reason;
-        } else {
-          result.needsConfirmation = true;
-          result.blockRouting = true;
-          result.confirmationReason = mismatch.reason;
         }
+        // Text mismatch alone is not reliable enough to block routing
+        // (abbreviations, dropped words in formatted addresses cause false positives).
+        // Only log it; don't set needsConfirmation/blockRouting from text mismatch alone.
       }
     }
 

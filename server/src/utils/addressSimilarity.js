@@ -41,6 +41,17 @@ const ABBREVIATION_MAP = {
   'sd': 'south dakota', 'tn': 'tennessee', 'tx': 'texas', 'ut': 'utah',
   'vt': 'vermont', 'va': 'virginia', 'wa': 'washington', 'wv': 'west virginia',
   'wi': 'wisconsin', 'wy': 'wyoming', 'dc': 'district of columbia',
+  // Infrastructure
+  'brg': 'bridge',
+  'br': 'bridge',
+  'bdg': 'bridge',
+  'tpk': 'turnpike',
+  'tpke': 'turnpike',
+  'tunl': 'tunnel',
+  'tnl': 'tunnel',
+  'fwy': 'freeway',
+  'expy': 'expressway',
+  'expwy': 'expressway',
   // Unit types
   'apt': 'apartment',
   'ste': 'suite',
@@ -53,12 +64,18 @@ const STOP_WORDS = new Set([
   'in', 'at', 'to', 'on', 'the', 'of', 'and', 'or', 'near', 'by', 'from', 'for',
 ]);
 
-// Multi-word abbreviations for cities — expanded before tokenization
+// Multi-word abbreviations — expanded before tokenization
 const CITY_ABBREVIATIONS = {
   'nyc': 'new york',
   'philly': 'philadelphia',
   'sf': 'san francisco',
   'la': 'los angeles',
+  'gw': 'george washington',
+  'gwb': 'george washington bridge',
+  'lga': 'laguardia',
+  'jfk': 'john f kennedy',
+  'bqe': 'brooklyn queens expressway',
+  'lic': 'long island city',
 };
 
 /**
@@ -142,7 +159,7 @@ function checkAddressTextMismatch(originalText, formattedAddress) {
   }
 
   const PER_TOKEN_THRESHOLD = 0.3;
-  const OVERALL_THRESHOLD = 0.85;
+  const OVERALL_THRESHOLD = 0.5;
 
   const mismatchedTokens = [];
   let matchedCount = 0;

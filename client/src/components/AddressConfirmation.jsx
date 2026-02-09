@@ -277,26 +277,30 @@ function AddressConfirmation({ stops, confirmationStopIndexes = [], transcript, 
             <div key={stop.originalIndex} className="stop-confirmation-item">
               <div className="stop-header">
                 <span className="stop-number">{stop.originalIndex + 1}</span>
-                <span
-                  className="confidence-badge"
-                  style={{
-                    backgroundColor: getConfidenceColor(stop.confidence),
-                    color: 'white'
-                  }}
-                >
-                  {getConfidenceLabel(stop.confidence)} {typeof stop.confidence === 'number' ? `(${Math.round(stop.confidence * 100)}%)` : ''}
-                </span>
+                {typeof stop.confidence === 'number' && stop.confidence < 0.9 ? (
+                  <span
+                    className="confidence-badge"
+                    style={{
+                      backgroundColor: getConfidenceColor(stop.confidence),
+                      color: 'white'
+                    }}
+                  >
+                    {getConfidenceLabel(stop.confidence)} ({Math.round(stop.confidence * 100)}%)
+                  </span>
+                ) : stop.needsConfirmation && stop.confirmationReason ? (
+                  <span
+                    className="confidence-badge"
+                    style={{ backgroundColor: '#f59e0b', color: 'white' }}
+                  >
+                    Location Review
+                  </span>
+                ) : null}
               </div>
 
               <div className="stop-original">
                 Original: "{stop.original}"
               </div>
 
-              {stop.needsConfirmation && stop.confirmationReason && (
-                <div className="distance-warning">
-                  ⚠️ {stop.confirmationReason}
-                </div>
-              )}
 
               <div className="parsed-stop-display">
                 <div className="parsed-stop-label">Parsed Stop</div>

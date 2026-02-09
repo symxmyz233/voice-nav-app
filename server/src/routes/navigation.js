@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { extractStopsFromAudio } from '../services/gemini.js';
-import { getMultiStopRoute } from '../services/maps.js';
+import { getMultiStopRoute, geocodeLocation } from '../services/maps.js';
 import { isValidEmail, sendRouteEmail } from '../services/email.js';
 import {
   findNearbyCoffeeShops,
@@ -494,34 +494,10 @@ router.post('/process-voice', optionalAuth, upload.single('audio'), async (req, 
 
     console.log('Final stops array:', finalStops.map(s => s.original || s.searchQuery));
 
-    // Step 2.5: Check confidence levels - if any stop has confidence < 0.9, ask for confirmation
-    const CONFIDENCE_THRESHOLD = 0.9;
-    const lowConfidenceStops = finalStops.filter(stop =>
-      stop.confidence !== undefined && stop.confidence < CONFIDENCE_THRESHOLD
-    );
-    const lowConfidenceStopIndexes = findConfirmationStopIndexes(finalStops, CONFIDENCE_THRESHOLD);
-
-    if (lowConfidenceStops.length > 0) {
-      console.log(`⚠️ Found ${lowConfidenceStops.length} stops with low confidence - requesting user confirmation`);
-      return res.json({
-        success: true,
-        needsConfirmation: true,
-        transcript: geminiResult.transcript || null,
-        commandType: geminiResult.commandType || 'new_route',
-        stops: finalStops,
-        confirmationStopIndexes: lowConfidenceStopIndexes,
-        lowConfidenceStops: lowConfidenceStops.map(s => s.original),
-        message: 'Please confirm the detected addresses before proceeding'
-      });
-    }
-
-    // Step 3: Get route from Google Maps
-    console.log('Getting route from Google Maps...');
-
-    // Build geocoding context with user location and route context
+    // Build geocoding context with user location and route context (needed for both
+    // pre-geocoding low-confidence stops and the main route calculation)
     let geocodingContext = null;
 
-    // Priority 1: User's current location (most accurate for new routes)
     if (userLocation) {
       geocodingContext = {
         userLocation: { lat: userLocation.lat, lng: userLocation.lng }
@@ -529,9 +505,7 @@ router.post('/process-voice', optionalAuth, upload.single('audio'), async (req, 
       console.log(`🎯 Using user location for geocoding: (${userLocation.lat.toFixed(4)}, ${userLocation.lng.toFixed(4)})`);
     }
 
-    // Priority 2: Route context for add_stop/insert_stop commands
     if ((commandType === 'add_stop' || commandType === 'insert_stop') && currentRoute?.stops?.length > 0) {
-      // Calculate midpoint of current route for better location bias
       const existingStops = currentRoute.stops.filter((s) => {
         const lat = Number(s?.lat);
         const lng = Number(s?.lng);
@@ -549,6 +523,66 @@ router.post('/process-voice', optionalAuth, upload.single('audio'), async (req, 
         console.log(`🎯 Also using route context for geocoding: midpoint (${avgLat.toFixed(4)}, ${avgLng.toFixed(4)})`);
       }
     }
+
+    // Step 2.5: Check confidence levels - if any stop has confidence < 0.9, ask for confirmation
+    const CONFIDENCE_THRESHOLD = 0.9;
+    const lowConfidenceStops = finalStops.filter(stop =>
+      stop.confidence !== undefined && stop.confidence < CONFIDENCE_THRESHOLD
+    );
+    const lowConfidenceStopIndexes = findConfirmationStopIndexes(finalStops, CONFIDENCE_THRESHOLD);
+
+    if (lowConfidenceStops.length > 0) {
+      console.log(`⚠️ Found ${lowConfidenceStops.length} stops with low confidence - pre-geocoding for alternatives`);
+
+      // Pre-geocode low-confidence stops so the confirmation dialog can show candidate addresses
+      let previousLocation = geocodingContext?.userLocation || geocodingContext?.routeMidpoint || null;
+      for (const stop of finalStops) {
+        if (stop.confidence !== undefined && stop.confidence < CONFIDENCE_THRESHOLD) {
+          try {
+            const geoContext = previousLocation ? { nearLocation: previousLocation } : {};
+            const result = await geocodeLocation(stop, geoContext);
+
+            // Attach alternative addresses from geocoding result
+            if (result.alternativeResults && result.alternativeResults.length > 0) {
+              stop.hasAlternatives = true;
+              stop.alternativeResults = result.alternativeResults;
+            }
+            if (result.needsConfirmation) {
+              stop.needsConfirmation = true;
+              if (result.confirmationReason) {
+                stop.confirmationReason = result.confirmationReason;
+              }
+            }
+            // Attach geocoded coordinates so confirm doesn't need to re-geocode
+            if (Number.isFinite(result.lat) && Number.isFinite(result.lng)) {
+              stop.lat = result.lat;
+              stop.lng = result.lng;
+              stop.formattedAddress = result.formattedAddress;
+              stop.placeId = result.placeId;
+              previousLocation = { lat: result.lat, lng: result.lng };
+            }
+          } catch (err) {
+            console.log(`Pre-geocoding failed for "${stop.original}":`, err.message);
+          }
+        } else if (Number.isFinite(Number(stop.lat)) && Number.isFinite(Number(stop.lng))) {
+          previousLocation = { lat: Number(stop.lat), lng: Number(stop.lng) };
+        }
+      }
+
+      return res.json({
+        success: true,
+        needsConfirmation: true,
+        transcript: geminiResult.transcript || null,
+        commandType: geminiResult.commandType || 'new_route',
+        stops: finalStops,
+        confirmationStopIndexes: lowConfidenceStopIndexes,
+        lowConfidenceStops: lowConfidenceStops.map(s => s.original),
+        message: 'Please confirm the detected addresses before proceeding'
+      });
+    }
+
+    // Step 3: Get route from Google Maps
+    console.log('Getting route from Google Maps...');
 
     let routeData;
     try {
