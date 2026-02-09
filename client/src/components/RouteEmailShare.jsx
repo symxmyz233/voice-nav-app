@@ -108,10 +108,7 @@ function RouteEmailShare({ route, compact = false }) {
 
   return (
     <div id="route-email-share-card" className="route-email-share">
-      <h2>Send Route To Phone</h2>
-      <p className="route-email-hint">
-        Enter an email address to receive a Google Maps link that opens directly on mobile.
-      </p>
+      <h2>Send to Phone</h2>
       <form className="route-email-form" onSubmit={handleSubmit}>
         {!canQuickSend && (
           <input
@@ -139,6 +136,12 @@ function RouteEmailShare({ route, compact = false }) {
       </form>
       {successMessage && <p className="route-email-success">{successMessage}</p>}
       {errorMessage && <p className="route-email-error">{errorMessage}</p>}
+
+      <p style={{ fontSize: '0.8rem', color: '#9ca3af', marginTop: '10px' }}>
+        {route
+          ? 'Click to send your route as a Google Maps link to your phone'
+          : 'Create a route first, then send it to your mobile device'}
+      </p>
     </div>
   );
 }

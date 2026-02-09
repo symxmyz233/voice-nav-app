@@ -9,7 +9,7 @@ export function AuthProvider({ children }) {
 
   // Check authentication status on mount
   useEffect(() => {
-    resetAuthOnAppStart();
+    checkAuth();
   }, []);
 
   const checkAuth = async () => {
@@ -31,21 +31,6 @@ export function AuthProvider({ children }) {
       setCurrentUser(null);
       setIsAuthenticated(false);
     } finally {
-      setLoading(false);
-    }
-  };
-
-  const resetAuthOnAppStart = async () => {
-    try {
-      await fetch('/api/users/logout', {
-        method: 'POST',
-        credentials: 'include'
-      });
-    } catch (error) {
-      console.warn('Failed to reset auth on app start:', error);
-    } finally {
-      setCurrentUser(null);
-      setIsAuthenticated(false);
       setLoading(false);
     }
   };

@@ -123,12 +123,6 @@ function MapDisplay({ route, onCoffeeShopsFound, onAddCoffeeShop }) {
     setSelectedShop(null);
   }, [route]);
 
-  const getMarkerLabel = (index, total) => {
-    if (index === 0) return 'A';
-    if (index === total - 1) return String.fromCharCode(65 + index);
-    return String.fromCharCode(65 + index);
-  }, [map, route, normalizedStops, decodedPath]);
-
   // Compute letter labels that skip via stops
   const stopLetters = useMemo(() => {
     let letterIdx = 0;

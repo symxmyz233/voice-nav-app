@@ -917,7 +917,7 @@ function AppContent() {
               userLocation={userLocation}
               compact
             />
-            {routeData && <RouteEmailShare route={routeData} compact />}
+            <RouteEmailShare route={routeData} compact />
           </div>
           <div className="header-right">
             <UserProfile />
@@ -985,7 +985,6 @@ function AppContent() {
             </button>
           )}
 
-          {routeData && <RouteEmailShare route={routeData} />}
           {transcript && (
             <div className="transcript-box">
               <span className="transcript-label">You said:</span>
