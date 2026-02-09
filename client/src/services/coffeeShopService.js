@@ -14,6 +14,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
  * @param {number} options.limit - Maximum number of recommendations (default: 5)
  * @param {string} options.sortBy - Sort criteria (default: 'score')
  * @param {boolean} options.openNowOnly - Only open shops (default: false)
+ * @param {number} options.perStopLimit - Max recommendations per stop (default: 5)
+ * @param {string} options.keyword - Search keyword override (optional)
  * @returns {Promise<Object>} - Coffee shop recommendations
  */
 export async function searchCoffeeShops(options = {}) {
@@ -23,7 +25,9 @@ export async function searchCoffeeShops(options = {}) {
     radius = 5000,
     limit = 5,
     sortBy = 'score',
-    openNowOnly = false
+    openNowOnly = false,
+    perStopLimit,
+    keyword
   } = options;
 
   console.log('=== Frontend: Searching Coffee Shops ===');
@@ -31,7 +35,20 @@ export async function searchCoffeeShops(options = {}) {
 
   // Build request body based on search type
   let requestBody;
-  if (route) {
+  if (route && location) {
+    console.log('Search type: Current location + along route');
+    console.log('Route:', route);
+    console.log('Location:', location);
+    requestBody = {
+      route,
+      lat: location.lat,
+      lng: location.lng,
+      radius,
+      limit,
+      sortBy,
+      openNowOnly
+    };
+  } else if (route) {
     console.log('Search type: Along route');
     console.log('Route:', route);
     requestBody = {
@@ -39,7 +56,9 @@ export async function searchCoffeeShops(options = {}) {
       radius,
       limit,
       sortBy,
-      openNowOnly
+      openNowOnly,
+      ...(perStopLimit ? { perStopLimit } : {}),
+      ...(keyword ? { keyword } : {})
     };
   } else if (location) {
     console.log('Search type: Near location');
@@ -50,7 +69,9 @@ export async function searchCoffeeShops(options = {}) {
       radius,
       limit,
       sortBy,
-      openNowOnly
+      openNowOnly,
+      ...(perStopLimit ? { perStopLimit } : {}),
+      ...(keyword ? { keyword } : {})
     };
   } else {
     throw new Error('Either location or route must be provided');
@@ -79,7 +100,11 @@ export async function searchCoffeeShops(options = {}) {
     const data = await response.json();
     console.log('Success! Received data:', {
       success: data.success,
+      searchType: data.searchType,
       recommendationsCount: data.recommendations?.length,
+      grouped: data.grouped ? Object.fromEntries(
+        Object.entries(data.grouped).map(([key, value]) => [key, value?.length || 0])
+      ) : null,
       totalFound: data.totalFound
     });
     console.log('=== End Frontend Search ===');

@@ -102,12 +102,31 @@ export function recommendCoffeeShops(
 
   // Sort based on criteria
   let sorted;
+  const getDistanceValue = (shop) => {
+    if (isRouteSearch && shop.distanceFromRoute !== undefined) {
+      return shop.distanceFromRoute;
+    }
+    return shop.distance ?? Number.POSITIVE_INFINITY;
+  };
   switch (sortBy) {
     case 'rating':
-      sorted = withScores.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+      sorted = withScores.sort((a, b) => {
+        const ratingDiff = (b.rating || 0) - (a.rating || 0);
+        if (ratingDiff !== 0) return ratingDiff;
+        return getDistanceValue(a) - getDistanceValue(b);
+      });
       break;
     case 'distance':
-      sorted = withScores.sort((a, b) => a.distance - b.distance);
+      sorted = withScores.sort((a, b) => {
+        const distA = getDistanceValue(a);
+        const distB = getDistanceValue(b);
+        const distDiff = distA - distB;
+        // If shops are within 500m of each other, sort by rating instead
+        if (Math.abs(distDiff) < 500) {
+          return (b.rating || 0) - (a.rating || 0);
+        }
+        return distDiff;
+      });
       break;
     case 'reviews':
       sorted = withScores.sort((a, b) => (b.reviewCount || 0) - (a.reviewCount || 0));
@@ -129,14 +148,16 @@ export function recommendCoffeeShops(
  * @returns {Object} - Formatted shop object
  */
 export function formatShopForDisplay(shop) {
+  const distanceValue = shop.distanceFromRoute !== undefined ? shop.distanceFromRoute : shop.distance;
+  const hasDistanceValue = distanceValue !== undefined && distanceValue !== null;
   const formatted = {
     placeId: shop.placeId,
     name: shop.name,
     location: shop.location,
     rating: shop.rating,
     reviewCount: shop.reviewCount,
-    distance: shop.distance ? `${Math.round(shop.distance / 100) / 10}km` : 'N/A',
-    distanceValue: shop.distance,
+    distance: hasDistanceValue ? `${Math.round(distanceValue / 100) / 10}km` : 'N/A',
+    distanceValue,
     address: shop.address,
     vicinity: shop.vicinity,
     openNow: shop.openNow,
@@ -144,7 +165,11 @@ export function formatShopForDisplay(shop) {
     website: shop.website,
     phone: shop.phone,
     recommendationScore: shop.recommendationScore,
-    scoreBreakdown: getScoreBreakdown(shop)
+    scoreBreakdown: getScoreBreakdown(shop),
+    sourceStopKey: shop.sourceStopKey,
+    sourceStopLabel: shop.sourceStopLabel,
+    sourceStopIndex: shop.sourceStopIndex,
+    isFallbackFood: shop.isFallbackFood === true
   };
 
   // Add route-specific info if available
