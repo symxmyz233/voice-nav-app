@@ -1,4 +1,5 @@
 import { Client } from '@googlemaps/google-maps-services-js';
+import { checkAddressTextMismatch } from '../utils/addressSimilarity.js';
 
 const mapsClient = new Client({});
 
@@ -74,6 +75,27 @@ function buildGeocodingQuery(stopInfo) {
 }
 
 /**
+ * Extract non-confirmed address components from Address Validation API response.
+ */
+function getUnconfirmedAddressComponents(validationResult) {
+  const components = validationResult?.address?.addressComponents;
+  if (!Array.isArray(components)) {
+    return [];
+  }
+
+  return components
+    .filter((component) => {
+      const level = String(component?.confirmationLevel || '').toUpperCase();
+      return level && level !== 'CONFIRMED';
+    })
+    .map((component) => ({
+      type: component.componentType || 'unknown',
+      text: component.componentName?.text || '',
+      confirmationLevel: component.confirmationLevel || 'UNKNOWN'
+    }));
+}
+
+/**
  * Validate and geocode an address using Google's Address Validation API.
  * Falls back to Geocoding API for landmarks or when validation fails.
  * @param {string} query - Address string to validate
@@ -109,6 +131,8 @@ async function validateAddress(query) {
   }
 
   const data = await response.json();
+  console.log('\n📦 Raw Address Validation API response:');
+  console.log(JSON.stringify(data, null, 2));
   const result = data.result;
 
   if (!result?.geocode?.location) {
@@ -118,6 +142,7 @@ async function validateAddress(query) {
   }
 
   const verdict = result.verdict || {};
+  const unconfirmedComponents = getUnconfirmedAddressComponents(result);
 
   console.log('\n📊 Address Validation Result:');
   console.log(`  Formatted Address: ${result.address?.formattedAddress}`);
@@ -134,6 +159,9 @@ async function validateAddress(query) {
   if (!verdict.addressComplete) {
     console.log(`  ⚠️ Address is incomplete`);
   }
+  if (unconfirmedComponents.length > 0) {
+    console.log('  ⚠️ Unconfirmed components:', unconfirmedComponents.map((c) => `${c.type}:${c.text}`).join(', '));
+  }
 
   console.log('✅ Address Validation succeeded');
   console.log('=== END ADDRESS VALIDATION API ===\n');
@@ -145,7 +173,8 @@ async function validateAddress(query) {
     placeId: result.geocode.placeId || null,
     validationVerdict: {
       addressComplete: verdict.addressComplete ?? null,
-      hasUnconfirmedComponents: verdict.hasUnconfirmedComponents ?? false
+      hasUnconfirmedComponents: verdict.hasUnconfirmedComponents ?? false,
+      unconfirmedComponents
     }
   };
 }
@@ -308,6 +337,432 @@ function determineGeocodingStrategy(stopInfo) {
   return 'hybrid';
 }
 
+function hasExplicitRegionalContext(stopInfo) {
+  if (!stopInfo || typeof stopInfo !== 'object') return false;
+  const parsed = stopInfo.parsed || {};
+  return Boolean(
+    parsed.city ||
+    parsed.state ||
+    parsed.country ||
+    parsed.postalCode
+  );
+}
+
+/**
+ * Distance-from-hint guard should only apply to ambiguous stops.
+ * We skip it for full addresses, landmarks, and any stop with explicit city/state context.
+ */
+function shouldApplyDistanceGuard(stopInfo) {
+  if (!stopInfo || typeof stopInfo !== 'object') return false;
+  if (hasExplicitRegionalContext(stopInfo)) return false;
+
+  return stopInfo.type === 'partial' || stopInfo.type === 'relative';
+}
+
+/**
+ * Return fulfilled value from Promise.allSettled result, otherwise null.
+ */
+function getSettledValue(result) {
+  return result.status === 'fulfilled' ? result.value : null;
+}
+
+/**
+ * Attach structured metadata from Gemini to geocoding results.
+ */
+function enrichWithStructuredMetadata(result, stopInfo, isStructured) {
+  if (!isStructured) return result;
+  return {
+    ...result,
+    type: stopInfo.type,
+    confidence: stopInfo.confidence,
+    original: stopInfo.original
+  };
+}
+
+/**
+ * Add distance warning metadata if result is far from expected hint location.
+ */
+function applyDistanceWarning(result, nearLocation, label) {
+  if (!result || !nearLocation) return result;
+
+  const distance = calculateDistance(
+    result.lat,
+    result.lng,
+    nearLocation.lat,
+    nearLocation.lng
+  );
+
+  if (distance <= 50) {
+    return result;
+  }
+
+  console.warn(`⚠️ ${label} is ${distance.toFixed(2)}km from expected location - may be incorrect`);
+  return {
+    ...result,
+    distanceWarning: {
+      distance,
+      expectedLocation: nearLocation
+    }
+  };
+}
+
+function dedupeAlternativeResults(alternatives) {
+  const deduped = [];
+  const seen = new Set();
+
+  for (const option of alternatives) {
+    const key = `${option.lat}:${option.lng}:${option.formattedAddress || ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(option);
+  }
+
+  return deduped;
+}
+
+function buildAddressAlternatives(validated, geocoded) {
+  const alternatives = [];
+
+  if (validated) {
+    alternatives.push({
+      source: 'Address Validation API',
+      lat: validated.lat,
+      lng: validated.lng,
+      formattedAddress: validated.formattedAddress,
+      placeId: validated.placeId,
+      distanceWarning: validated.distanceWarning
+    });
+  }
+
+  if (geocoded) {
+    const geocodingAlternatives = geocoded.allResults?.length
+      ? geocoded.allResults
+      : [{
+          lat: geocoded.lat,
+          lng: geocoded.lng,
+          formattedAddress: geocoded.formattedAddress,
+          placeId: geocoded.placeId
+        }];
+
+    geocodingAlternatives.slice(0, 3).forEach((candidate, index) => {
+      alternatives.push({
+        source: index === 0 ? 'Geocoding API (Best Match)' : `Geocoding API (Alternative ${index})`,
+        lat: candidate.lat,
+        lng: candidate.lng,
+        formattedAddress: candidate.formattedAddress,
+        placeId: candidate.placeId,
+        distanceWarning: index === 0 ? geocoded.distanceWarning : undefined
+      });
+    });
+  }
+
+  return dedupeAlternativeResults(alternatives);
+}
+
+function buildLandmarkAlternatives(places, geocoded) {
+  const alternatives = [];
+
+  if (places) {
+    alternatives.push({
+      source: 'Places API (Business/Landmark)',
+      lat: places.lat,
+      lng: places.lng,
+      formattedAddress: places.formattedAddress,
+      placeId: places.placeId,
+      name: places.name,
+      distanceWarning: places.distanceWarning
+    });
+  }
+
+  if (geocoded) {
+    const geocodingAlternatives = geocoded.allResults?.length
+      ? geocoded.allResults
+      : [{
+          lat: geocoded.lat,
+          lng: geocoded.lng,
+          formattedAddress: geocoded.formattedAddress,
+          placeId: geocoded.placeId
+        }];
+
+    geocodingAlternatives.slice(0, 3).forEach((candidate, index) => {
+      alternatives.push({
+        source: index === 0 ? 'Geocoding API (Address)' : `Geocoding API (Alternative ${index})`,
+        lat: candidate.lat,
+        lng: candidate.lng,
+        formattedAddress: candidate.formattedAddress,
+        placeId: candidate.placeId,
+        distanceWarning: index === 0 ? geocoded.distanceWarning : undefined
+      });
+    });
+  }
+
+  return dedupeAlternativeResults(alternatives);
+}
+
+function buildHybridAlternatives(geocoded, places) {
+  const alternatives = [];
+
+  if (geocoded) {
+    const geocodingAlternatives = geocoded.allResults?.length
+      ? geocoded.allResults
+      : [{
+          lat: geocoded.lat,
+          lng: geocoded.lng,
+          formattedAddress: geocoded.formattedAddress,
+          placeId: geocoded.placeId
+        }];
+
+    geocodingAlternatives.slice(0, 3).forEach((candidate, index) => {
+      alternatives.push({
+        source: index === 0 ? 'Geocoding API (Best Match)' : `Geocoding API (Alternative ${index})`,
+        lat: candidate.lat,
+        lng: candidate.lng,
+        formattedAddress: candidate.formattedAddress,
+        placeId: candidate.placeId,
+        distanceWarning: index === 0 ? geocoded.distanceWarning : undefined
+      });
+    });
+  }
+
+  if (places) {
+    alternatives.push({
+      source: 'Places API',
+      lat: places.lat,
+      lng: places.lng,
+      formattedAddress: places.formattedAddress,
+      placeId: places.placeId,
+      name: places.name,
+      distanceWarning: places.distanceWarning
+    });
+  }
+
+  return dedupeAlternativeResults(alternatives);
+}
+
+async function resolvePlacesPrimaryStrategy(query, geocodingOptions, stopInfo, isStructured, context) {
+  const [placesResult, geocodingResult] = await Promise.allSettled([
+    findPlaceByTextSearch(query, geocodingOptions),
+    geocodeFallback(query, geocodingOptions)
+  ]);
+
+  let places = getSettledValue(placesResult);
+  let geocoded = getSettledValue(geocodingResult);
+
+  const useDistanceGuard = shouldApplyDistanceGuard(stopInfo);
+  places = useDistanceGuard ? applyDistanceWarning(places, context.nearLocation, 'Places result') : places;
+  geocoded = useDistanceGuard ? applyDistanceWarning(geocoded, context.nearLocation, 'Geocoding result') : geocoded;
+
+  if (places) {
+    console.log(`✅ Places API found: ${places.name} at ${places.formattedAddress}`);
+
+    if (geocoded) {
+      const distance = calculateDistance(places.lat, places.lng, geocoded.lat, geocoded.lng);
+      if (distance > 1) {
+        const reason = `Places and Geocoding differ by ${distance.toFixed(2)}km`;
+        console.log(`⚠️ ${reason} - requiring confirmation`);
+        const alternatives = buildLandmarkAlternatives(places, geocoded);
+        return enrichWithStructuredMetadata({
+          ...places,
+          needsConfirmation: true,
+          blockRouting: true,
+          confirmationReason: reason,
+          hasAlternatives: alternatives.length > 1,
+          alternativeResults: alternatives
+        }, stopInfo, isStructured);
+      }
+    }
+
+    if (places.distanceWarning) {
+      const reason = 'Place result is far from expected location';
+      const alternatives = buildLandmarkAlternatives(places, geocoded);
+      return enrichWithStructuredMetadata({
+        ...places,
+        needsConfirmation: true,
+        blockRouting: true,
+        confirmationReason: reason,
+        hasAlternatives: alternatives.length > 1,
+        alternativeResults: alternatives
+      }, stopInfo, isStructured);
+    }
+
+    const finalResult = enrichWithStructuredMetadata(places, stopInfo, isStructured);
+    console.log('\n✅ GEOCODING FINAL RESULT:');
+    console.log(`   Name: ${finalResult.name}`);
+    console.log(`   Address: ${finalResult.formattedAddress}`);
+    console.log(`   Coordinates: ${finalResult.lat}, ${finalResult.lng}`);
+    console.log(`   Source: ${finalResult.source}\n`);
+    return finalResult;
+  }
+
+  if (geocoded) {
+    const hasMultipleGeocodingCandidates = (geocoded.allResults?.length || 1) > 1;
+    if (hasMultipleGeocodingCandidates || geocoded.distanceWarning) {
+      const reasons = [];
+      if (hasMultipleGeocodingCandidates) reasons.push('Multiple geocoding matches were found');
+      if (geocoded.distanceWarning) reasons.push('Result is far from expected location');
+      const alternatives = buildLandmarkAlternatives(null, geocoded);
+      return enrichWithStructuredMetadata({
+        ...geocoded,
+        needsConfirmation: true,
+        blockRouting: true,
+        confirmationReason: reasons.join('; '),
+        hasAlternatives: alternatives.length > 1,
+        alternativeResults: alternatives
+      }, stopInfo, isStructured);
+    }
+
+    console.log('Places API failed, using Geocoding API');
+    return enrichWithStructuredMetadata(geocoded, stopInfo, isStructured);
+  }
+
+  throw new Error(`Both Places and Geocoding APIs failed for: "${query}"`);
+}
+
+async function resolveAddressStrategy(query, geocodingOptions, stopInfo, isStructured, context) {
+  const [validationResult, geocodingResult] = await Promise.allSettled([
+    validateAddress(query),
+    geocodeFallback(query, geocodingOptions)
+  ]);
+
+  let validated = getSettledValue(validationResult);
+  let geocoded = getSettledValue(geocodingResult);
+
+  const useDistanceGuard = shouldApplyDistanceGuard(stopInfo);
+  validated = useDistanceGuard ? applyDistanceWarning(validated, context.nearLocation, 'Address Validation result') : validated;
+  geocoded = useDistanceGuard ? applyDistanceWarning(geocoded, context.nearLocation, 'Geocoding result') : geocoded;
+
+  const validationVerdict = validated?.validationVerdict || null;
+  const hasIncompleteAddress = validationVerdict?.addressComplete === false;
+  const hasUnconfirmedComponents = validationVerdict?.hasUnconfirmedComponents === true;
+  const hasMultipleCandidates = (geocoded?.allResults?.length || (geocoded ? 1 : 0)) > 1;
+  const farFromExpectedLocation = Boolean(validated?.distanceWarning || geocoded?.distanceWarning);
+  let hasApiDisagreement = false;
+  let apiDistance = 0;
+
+  if (validated && geocoded) {
+    apiDistance = calculateDistance(validated.lat, validated.lng, geocoded.lat, geocoded.lng);
+    hasApiDisagreement = apiDistance > 1;
+    console.log(`Address strategy comparison distance: ${apiDistance.toFixed(2)}km`);
+  }
+
+  const needsAddressClarification = (
+    hasIncompleteAddress ||
+    hasUnconfirmedComponents ||
+    hasMultipleCandidates ||
+    farFromExpectedLocation ||
+    hasApiDisagreement
+  );
+
+  if (needsAddressClarification) {
+    const alternatives = buildAddressAlternatives(validated, geocoded);
+    const clarificationNotes = [];
+
+    if (hasIncompleteAddress) clarificationNotes.push('Address appears incomplete');
+    if (hasUnconfirmedComponents) clarificationNotes.push('Address has unconfirmed components');
+    if (hasMultipleCandidates) clarificationNotes.push('Multiple geocoding matches were found');
+    if (farFromExpectedLocation) clarificationNotes.push('Result is far from expected location');
+    if (hasApiDisagreement) clarificationNotes.push(`Address Validation and Geocoding differ by ${apiDistance.toFixed(2)}km`);
+
+    const baseResult = validated || geocoded;
+    if (!baseResult) {
+      throw new Error(`Address requires clarification and no fallback geocode was available for: "${query}"`);
+    }
+
+    console.warn(`⚠️ Address clarification needed for "${query}": ${clarificationNotes.join('; ')}`);
+
+    return enrichWithStructuredMetadata({
+      ...baseResult,
+      needsConfirmation: true,
+      blockRouting: true,
+      confirmationReason: clarificationNotes.join('; ') || 'Address requires confirmation',
+      hasAlternatives: alternatives.length > 1,
+      alternativeResults: alternatives
+    }, stopInfo, isStructured);
+  }
+
+  if (validated && geocoded) {
+    const distance = calculateDistance(validated.lat, validated.lng, geocoded.lat, geocoded.lng);
+    console.log(`Both APIs succeeded. Distance between results: ${distance.toFixed(2)}km`);
+    console.log('Results are similar - using Address Validation API');
+    return enrichWithStructuredMetadata(validated, stopInfo, isStructured);
+  }
+
+  if (validated) {
+    console.log(`Only Address Validation succeeded for: "${query}"`);
+    return enrichWithStructuredMetadata(validated, stopInfo, isStructured);
+  }
+
+  if (geocoded) {
+    console.log(`Only Geocoding API succeeded for: "${query}"`);
+    return enrichWithStructuredMetadata(geocoded, stopInfo, isStructured);
+  }
+
+  throw new Error(`Both geocoding APIs failed for: "${query}"`);
+}
+
+async function resolveHybridStrategy(query, geocodingOptions, stopInfo, isStructured, context) {
+  const [geocodingResult, placesResult] = await Promise.allSettled([
+    geocodeFallback(query, geocodingOptions),
+    findPlaceByTextSearch(query, geocodingOptions)
+  ]);
+
+  let geocoded = getSettledValue(geocodingResult);
+  let places = getSettledValue(placesResult);
+
+  const useDistanceGuard = shouldApplyDistanceGuard(stopInfo);
+  geocoded = useDistanceGuard ? applyDistanceWarning(geocoded, context.nearLocation, 'Geocoding result') : geocoded;
+  places = useDistanceGuard ? applyDistanceWarning(places, context.nearLocation, 'Places result') : places;
+
+  const hasMultipleGeocodingCandidates = (geocoded?.allResults?.length || (geocoded ? 1 : 0)) > 1;
+  const farFromExpectedLocation = Boolean(geocoded?.distanceWarning || places?.distanceWarning);
+  let hasApiDisagreement = false;
+  let apiDistance = 0;
+
+  if (geocoded && places) {
+    apiDistance = calculateDistance(geocoded.lat, geocoded.lng, places.lat, places.lng);
+    hasApiDisagreement = apiDistance > 1;
+    console.log(`Hybrid strategy comparison distance: ${apiDistance.toFixed(2)}km`);
+  }
+
+  const needsClarification = (
+    hasMultipleGeocodingCandidates ||
+    farFromExpectedLocation ||
+    hasApiDisagreement
+  );
+
+  if (needsClarification) {
+    const notes = [];
+    if (hasMultipleGeocodingCandidates) notes.push('Multiple geocoding matches were found');
+    if (farFromExpectedLocation) notes.push('Result is far from expected location');
+    if (hasApiDisagreement) notes.push(`Places and Geocoding differ by ${apiDistance.toFixed(2)}km`);
+
+    const alternatives = buildHybridAlternatives(geocoded, places);
+    const baseResult = geocoded || places;
+    if (!baseResult) {
+      throw new Error(`Both Geocoding and Places APIs failed for: "${query}"`);
+    }
+
+    return enrichWithStructuredMetadata({
+      ...baseResult,
+      needsConfirmation: true,
+      blockRouting: true,
+      confirmationReason: notes.join('; ') || 'Address requires confirmation',
+      hasAlternatives: alternatives.length > 1,
+      alternativeResults: alternatives
+    }, stopInfo, isStructured);
+  }
+
+  if (geocoded) {
+    return enrichWithStructuredMetadata(geocoded, stopInfo, isStructured);
+  }
+
+  if (places) {
+    return enrichWithStructuredMetadata(places, stopInfo, isStructured);
+  }
+
+  throw new Error(`Both Geocoding and Places APIs failed for: "${query}"`);
+}
+
 /**
  * Geocode a location to coordinates.
  * Intelligently chooses between Places API, Address Validation API, and Geocoding API
@@ -330,7 +785,6 @@ export async function geocodeLocation(stopInfo, context = {}) {
     console.log(`🏛️  Landmark: ${stopInfo.parsed?.landmark || 'N/A'}`);
   }
 
-  // Prepare geocoding options with location bias
   const geocodingOptions = {};
   if (context.nearLocation) {
     geocodingOptions.locationBias = context.nearLocation;
@@ -340,218 +794,45 @@ export async function geocodeLocation(stopInfo, context = {}) {
   }
   console.log('=======================================');
 
-  // Determine which APIs to use based on stop type
   const strategy = determineGeocodingStrategy(stopInfo);
 
   try {
-    // Strategy 1: Places API primary (for landmarks/businesses)
+    let result;
     if (strategy === 'places_primary') {
-      const [placesResult, geocodingResult] = await Promise.allSettled([
-        findPlaceByTextSearch(query, geocodingOptions),
-        geocodeFallback(query, geocodingOptions)
-      ]);
-
-      const places = placesResult.status === 'fulfilled' ? placesResult.value : null;
-      const geocoded = geocodingResult.status === 'fulfilled' ? geocodingResult.value : null;
-
-      // If Places API found it, use that result (but offer geocoding as alternative if different)
-      if (places) {
-        console.log(`✅ Places API found: ${places.name} at ${places.formattedAddress}`);
-
-        // Check if geocoding also succeeded and differs
-        if (geocoded) {
-          const distance = calculateDistance(places.lat, places.lng, geocoded.lat, geocoded.lng);
-
-          if (distance > 1) {
-            console.log(`⚠️ Places and Geocoding differ by ${distance.toFixed(2)}km - offering both`);
-            return {
-              ...places,
-              ...(isStructured && {
-                type: stopInfo.type,
-                confidence: stopInfo.confidence,
-                original: stopInfo.original
-              }),
-              hasAlternatives: true,
-              alternativeResults: [
-                {
-                  source: 'Places API (Business/Landmark)',
-                  lat: places.lat,
-                  lng: places.lng,
-                  formattedAddress: places.formattedAddress,
-                  placeId: places.placeId,
-                  name: places.name
-                },
-                {
-                  source: 'Geocoding API (Address)',
-                  lat: geocoded.lat,
-                  lng: geocoded.lng,
-                  formattedAddress: geocoded.formattedAddress,
-                  placeId: geocoded.placeId
-                }
-              ]
-            };
-          }
-        }
-
-        const finalResult = {
-          ...places,
-          ...(isStructured && {
-            type: stopInfo.type,
-            confidence: stopInfo.confidence,
-            original: stopInfo.original
-          })
-        };
-        console.log('\n✅ GEOCODING FINAL RESULT:');
-        console.log(`   Name: ${finalResult.name}`);
-        console.log(`   Address: ${finalResult.formattedAddress}`);
-        console.log(`   Coordinates: ${finalResult.lat}, ${finalResult.lng}`);
-        console.log(`   Source: ${finalResult.source}\n`);
-        return finalResult;
-      }
-
-      // Places API failed, fall back to geocoding
-      if (geocoded) {
-        console.log(`Places API failed, using Geocoding API`);
-        return {
-          ...geocoded,
-          ...(isStructured && {
-            type: stopInfo.type,
-            confidence: stopInfo.confidence,
-            original: stopInfo.original
-          })
-        };
-      }
-
-      throw new Error(`Both Places and Geocoding APIs failed for: "${query}"`);
+      result = await resolvePlacesPrimaryStrategy(query, geocodingOptions, stopInfo, isStructured, context);
+    } else if (strategy === 'address') {
+      result = await resolveAddressStrategy(query, geocodingOptions, stopInfo, isStructured, context);
+    } else {
+      result = await resolveHybridStrategy(query, geocodingOptions, stopInfo, isStructured, context);
     }
 
-    // Strategy 2: Address-focused (Address Validation + Geocoding)
-    // Strategy 3: Hybrid (try all)
-    const [validationResult, geocodingResult] = await Promise.allSettled([
-      validateAddress(query),
-      geocodeFallback(query, geocodingOptions)
-    ]);
+    // Text mismatch check: compare original input against geocoded result
+    if (isStructured && stopInfo.original && result.formattedAddress) {
+      const mismatch = checkAddressTextMismatch(stopInfo.original, result.formattedAddress);
 
-    const validated = validationResult.status === 'fulfilled' ? validationResult.value : null;
-    const geocoded = geocodingResult.status === 'fulfilled' ? geocodingResult.value : null;
-
-    // Validate distance from expected location if context provided
-    const validateDistance = (result, label) => {
-      if (context.nearLocation) {
-        const distance = calculateDistance(
-          result.lat, result.lng,
-          context.nearLocation.lat, context.nearLocation.lng
-        );
-        if (distance > 50) { // More than 50km away
-          console.warn(`⚠️ ${label} is ${distance.toFixed(2)}km from expected location - may be incorrect`);
-          result.distanceWarning = {
-            distance: distance,
-            expectedLocation: context.nearLocation
-          };
+      // For places_primary, also check against result.name to avoid false positives
+      // (e.g., "Starbucks" won't appear in a street address)
+      if (strategy === 'places_primary' && result.name && mismatch.hasMismatch) {
+        const nameMismatch = checkAddressTextMismatch(stopInfo.original, result.name);
+        if (!nameMismatch.hasMismatch) {
+          // Name matches well enough — don't flag
+          return result;
         }
       }
-    };
 
-    // If both succeeded, check if they give different locations
-    if (validated && geocoded) {
-      // Validate both results against expected location
-      validateDistance(validated, 'Address Validation result');
-      validateDistance(geocoded, 'Geocoding result');
-
-      const distance = calculateDistance(
-        validated.lat, validated.lng,
-        geocoded.lat, geocoded.lng
-      );
-
-      console.log(`Both APIs succeeded. Distance between results: ${distance.toFixed(2)}km`);
-
-      // If results differ significantly (> 1km), return both options plus any additional results
-      if (distance > 1) {
-        console.log(`⚠️ Results differ significantly - providing multiple options to user`);
-
-        const alternatives = [
-          {
-            source: 'Address Validation API',
-            lat: validated.lat,
-            lng: validated.lng,
-            formattedAddress: validated.formattedAddress,
-            placeId: validated.placeId,
-            distanceWarning: validated.distanceWarning
-          },
-          {
-            source: 'Geocoding API (Best Match)',
-            lat: geocoded.lat,
-            lng: geocoded.lng,
-            formattedAddress: geocoded.formattedAddress,
-            placeId: geocoded.placeId,
-            distanceWarning: geocoded.distanceWarning
-          }
-        ];
-
-        // Add additional results from Geocoding API if available
-        if (geocoded.allResults && geocoded.allResults.length > 1) {
-          geocoded.allResults.slice(1, 3).forEach((result, idx) => {
-            alternatives.push({
-              source: `Geocoding API (Alternative ${idx + 1})`,
-              lat: result.lat,
-              lng: result.lng,
-              formattedAddress: result.formattedAddress,
-              placeId: result.placeId
-            });
-          });
+      if (mismatch.hasMismatch) {
+        console.log(`⚠️ Address text mismatch detected: ${mismatch.reason}`);
+        if (result.needsConfirmation) {
+          result.confirmationReason += '; ' + mismatch.reason;
+        } else {
+          result.needsConfirmation = true;
+          result.blockRouting = true;
+          result.confirmationReason = mismatch.reason;
         }
-
-        return {
-          ...validated,
-          ...(isStructured && {
-            type: stopInfo.type,
-            confidence: stopInfo.confidence,
-            original: stopInfo.original
-          }),
-          hasAlternatives: true,
-          alternativeResults: alternatives
-        };
       }
-
-      // Results are similar, use Address Validation (more accurate)
-      console.log(`Results are similar - using Address Validation API`);
-      return {
-        ...validated,
-        ...(isStructured && {
-          type: stopInfo.type,
-          confidence: stopInfo.confidence,
-          original: stopInfo.original
-        })
-      };
     }
 
-    // Only one API succeeded
-    if (validated) {
-      console.log(`Only Address Validation succeeded for: "${query}"`);
-      return {
-        ...validated,
-        ...(isStructured && {
-          type: stopInfo.type,
-          confidence: stopInfo.confidence,
-          original: stopInfo.original
-        })
-      };
-    }
-
-    if (geocoded) {
-      console.log(`Only Geocoding API succeeded for: "${query}"`);
-      return {
-        ...geocoded,
-        ...(isStructured && {
-          type: stopInfo.type,
-          confidence: stopInfo.confidence,
-          original: stopInfo.original
-        })
-      };
-    }
-
-    // Both failed
-    throw new Error(`Both geocoding APIs failed for: "${query}"`);
+    return result;
   } catch (error) {
     console.error('Geocoding error for query:', query, error);
     throw error;
@@ -640,6 +921,21 @@ function normalizeDirectionsResponse(data) {
 }
 
 /**
+ * Compute the initial bearing (compass heading 0-360°) from point 1 to point 2.
+ * Used to tell the Routes API which direction of traffic flow to snap to
+ * at via waypoints (e.g., eastbound vs westbound on a bridge).
+ */
+function computeBearing(lat1, lng1, lat2, lng2) {
+  const toRad = (deg) => deg * Math.PI / 180;
+  const toDeg = (rad) => rad * 180 / Math.PI;
+  const φ1 = toRad(lat1), φ2 = toRad(lat2);
+  const Δλ = toRad(lng2 - lng1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+/**
  * Get route via the newer Routes API (routes.googleapis.com)
  * Uses already-geocoded lat/lng so no double-geocoding occurs.
  */
@@ -661,7 +957,26 @@ async function getRouteViaRoutesApi(geocodedStops) {
   };
 
   if (geocodedStops.length > 2) {
-    body.intermediates = geocodedStops.slice(1, -1).map(toWaypoint);
+    body.intermediates = geocodedStops.slice(1, -1).map(stop => {
+      if (stop.via) {
+        // Use lat/lng with heading for via waypoints.
+        // Heading = origin→destination bearing, tells the API which direction
+        // of traffic flow to snap to (e.g., eastbound vs westbound on a bridge).
+        const origin = geocodedStops[0];
+        const dest = geocodedStops[geocodedStops.length - 1];
+        const heading = Math.round(computeBearing(origin.lat, origin.lng, dest.lat, dest.lng));
+        const wp = {
+          location: {
+            latLng: { latitude: stop.lat, longitude: stop.lng },
+            heading: heading
+          },
+          via: true
+        };
+        console.log(`📍 Via waypoint at (${stop.lat}, ${stop.lng}) with heading ${heading}°`);
+        return wp;
+      }
+      return toWaypoint(stop);
+    });
   }
 
   console.log('Routes API request body:', JSON.stringify(body, null, 2));
@@ -724,6 +1039,13 @@ function parseDurationString(durationStr) {
 function normalizeRoutesResponse(data, geocodedStops) {
   const route = data.routes[0];
 
+  // Via waypoints don't create legs — build boundary indices from non-via stops
+  const legBoundaryIndices = [0];
+  for (let i = 1; i < geocodedStops.length - 1; i++) {
+    if (!geocodedStops[i].via) legBoundaryIndices.push(i);
+  }
+  legBoundaryIndices.push(geocodedStops.length - 1);
+
   const legs = route.legs.map((leg, index) => {
     const distanceMeters = leg.distanceMeters || 0;
     const durationSeconds = parseDurationString(leg.duration);
@@ -751,8 +1073,8 @@ function normalizeRoutesResponse(data, geocodedStops) {
     });
 
     return {
-      startAddress: geocodedStops[index]?.formattedAddress || '',
-      endAddress: geocodedStops[index + 1]?.formattedAddress || '',
+      startAddress: geocodedStops[legBoundaryIndices[index]]?.formattedAddress || '',
+      endAddress: geocodedStops[legBoundaryIndices[index + 1]]?.formattedAddress || '',
       distance: {
         value: distanceMeters,
         text: distanceText
@@ -808,6 +1130,26 @@ function normalizeRoutesResponse(data, geocodedStops) {
   };
 }
 
+function normalizeStopForConfirmation(stop) {
+  if (typeof stop === 'string') {
+    return {
+      name: stop,
+      original: stop,
+      searchQuery: stop,
+      confidence: 1
+    };
+  }
+
+  const fallbackName = stop?.name || stop?.original || stop?.searchQuery || 'Unknown stop';
+  return {
+    ...stop,
+    name: fallbackName,
+    original: stop?.original || fallbackName,
+    searchQuery: stop?.searchQuery || stop?.original || fallbackName,
+    confidence: typeof stop?.confidence === 'number' ? stop.confidence : 1
+  };
+}
+
 /**
  * Get directions for a multi-stop route
  * @param {Array} stops - Array of structured stop objects or location strings
@@ -827,12 +1169,15 @@ export async function getMultiStopRoute(stops, routeContext = null) {
     const geocodedStops = [];
     let previousLocation = null;
 
-    for (const stop of stops) {
+    for (let index = 0; index < stops.length; index += 1) {
+      const stop = stops[index];
       // If stop already has lat/lng (from existing route), use it as-is
       if (typeof stop === 'object' && stop.lat !== undefined && stop.lng !== undefined) {
         console.log(`Using existing geocoded location for: "${stop.name || stop.original}"`);
-        geocodedStops.push(stop);
-        previousLocation = { lat: stop.lat, lng: stop.lng };
+        const existingStop = normalizeStopForConfirmation(stop);
+        existingStop.via = Boolean(stop.via);
+        geocodedStops.push(existingStop);
+        previousLocation = { lat: existingStop.lat, lng: existingStop.lng };
         continue;
       }
 
@@ -863,8 +1208,29 @@ export async function getMultiStopRoute(stops, routeContext = null) {
 
       const geocodedStop = {
         name: typeof stop === 'string' ? stop : (stop.original || stop.searchQuery),
-        ...result
+        ...result,
+        via: Boolean(stop.via),
+        confidence: typeof result.confidence === 'number'
+          ? result.confidence
+          : (typeof stop === 'object' && typeof stop.confidence === 'number' ? stop.confidence : 1)
       };
+
+      if (result.needsConfirmation && result.blockRouting) {
+        console.warn(`⚠️ Blocking auto-routing until user confirms "${geocodedStop.name}"`);
+        const remainingStops = stops.slice(index + 1).map(normalizeStopForConfirmation);
+        const confirmationError = new Error(
+          result.confirmationReason || `Address confirmation required for "${geocodedStop.name}"`
+        );
+        confirmationError.code = 'ADDRESS_CONFIRMATION_REQUIRED';
+        confirmationError.confirmationStops = [
+          ...geocodedStops,
+          geocodedStop,
+          ...remainingStops
+        ];
+        confirmationError.confirmationStopIndexes = [index];
+        confirmationError.confirmationReason = result.confirmationReason || null;
+        throw confirmationError;
+      }
 
       // Check for duplicate coordinates (debugging)
       const duplicateCoords = geocodedStops.find(s =>
@@ -900,9 +1266,34 @@ export async function getMultiStopRoute(stops, routeContext = null) {
         if (typeof stopInfo === 'string') return stopInfo;
         return stopInfo.searchQuery || stopInfo.original;
       };
-      const origin = getDirectionsQuery(stops[0]);
-      const destination = getDirectionsQuery(stops[stops.length - 1]);
-      const waypoints = stops.slice(1, -1).map(getDirectionsQuery);
+
+      const origin = geocodedStops[0]?.lat !== undefined && geocodedStops[0]?.lng !== undefined
+        ? { lat: geocodedStops[0].lat, lng: geocodedStops[0].lng }
+        : getDirectionsQuery(stops[0]);
+      const destination = geocodedStops[geocodedStops.length - 1]?.lat !== undefined &&
+        geocodedStops[geocodedStops.length - 1]?.lng !== undefined
+        ? {
+            lat: geocodedStops[geocodedStops.length - 1].lat,
+            lng: geocodedStops[geocodedStops.length - 1].lng
+          }
+        : getDirectionsQuery(stops[stops.length - 1]);
+
+      const waypoints = stops.slice(1, -1).map((stop, i) => {
+        const geocoded = geocodedStops[i + 1];
+        if (geocoded?.via) {
+          // Prefer place_id for via waypoints — better road-snapping for bridges/tunnels
+          if (geocoded.placeId) {
+            return `via:place_id:${geocoded.placeId}`;
+          }
+          return `via:${getDirectionsQuery(stop)}`;
+        }
+
+        if (geocoded?.lat !== undefined && geocoded?.lng !== undefined) {
+          return { lat: geocoded.lat, lng: geocoded.lng };
+        }
+
+        return getDirectionsQuery(stop);
+      });
       const data = await getRouteViaDirectionsApi(origin, destination, waypoints);
       normalized = normalizeDirectionsResponse(data);
     }

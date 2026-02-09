@@ -1,10 +1,16 @@
 import { GoogleGenAI } from '@google/genai';
 
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+console.log(
+  'Loaded GEMINI_API_KEY:',
+  GEMINI_API_KEY ? `len=${String(GEMINI_API_KEY).length}` : 'missing'
+);
+
 let ai = null;
 
 function getClient() {
   if (!ai) {
-    ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
   }
   return ai;
 }
@@ -32,13 +38,11 @@ Extract all locations/stops mentioned and classify each one.${contextInfo}
 Return ONLY a valid JSON object in this exact format, with no additional text:
 {
   "transcript": "the full transcription of what the user said",
-<<<<<<< Updated upstream
   "commandType": "new_route|add_stop|insert_stop|replace_stop",
-=======
   "nearbySearch": false,
   "addCoffeeShop": false,
   "coffeeShopPreference": null,
->>>>>>> Stashed changes
+  "needsCurrentLocation": true or false,
   "stops": [
     {
       "original": "exactly what the user said for this stop",
@@ -54,7 +58,8 @@ Return ONLY a valid JSON object in this exact format, with no additional text:
         "businessName": "<business name> or null"
       },
       "searchQuery": "optimized string for Google Maps geocoding",
-      "confidence": 0.0 to 1.0
+      "confidence": 0.0 to 1.0,
+      "via": false
     }
   ],
 
@@ -76,8 +81,15 @@ User says "downtown Edison" → type="landmark", landmark="downtown" ❌ (should
 }
 
 Command Type Guidelines:
-- "new_route": User is specifying a completely new route from scratch (e.g., "Navigate from A to B", "Go from X to Y")
-  * ONLY use this if the user explicitly says "navigate", "go from", "route from", etc. with BOTH start and end locations
+- "new_route": User is specifying a completely new route from scratch
+  * Use for BOTH multi-stop ("Navigate from A to B") AND single-destination ("Go to X", "Take me to X", "Directions to X")
+  * If only ONE destination is mentioned, extract ONLY that single stop. Do NOT invent or guess a starting location.
+  * Set "needsCurrentLocation": true when the user does NOT specify a starting point
+    (e.g., "Go to X", "Take me to X with a stop at Y", "Navigate to X via Y").
+  * Set "needsCurrentLocation": false when the user explicitly names an origin
+    (e.g., "Navigate FROM A to B", "Go from A to B via C").
+  * For add_stop/insert_stop/replace_stop, always set "needsCurrentLocation": false
+    (the existing route already has an origin).
 - "add_stop": User wants to add a stop to existing route WITHOUT specifying position (e.g., "Add a stop at C", "Stop at C", "I want to go to C")
   * ⚠️ CRITICAL: Extract ONLY ONE stop - the location being added. DO NOT extract existing route locations.
 - "insert_stop": User wants to insert a stop at a SPECIFIC position (e.g., "Add C between A and B", "Insert C after A", "Put C before B")
@@ -105,6 +117,18 @@ Location Guidelines:
 - For full addresses with street number and name, parse into components and set type="full_address"
 - For partial addresses (missing city or state), set type="partial"
 - For relative locations like "nearest gas station" or "my house", set type="relative"
+- Address correctness double-check (MUST do this before final JSON):
+  * For any candidate full address, internally verify it is likely real and internally consistent:
+    - street number + street name look plausible
+    - city/state combination is valid
+    - postal code matches city/state when provided
+  * Never invent missing components (street number, ZIP, city, etc.).
+  * If you cannot confidently verify a full address exists, DO NOT keep type="full_address":
+    - downgrade to type="partial"
+    - keep uncertain fields null
+    - keep original spoken text in "original"
+    - reduce confidence to <= 0.6
+  * If only city/area is trustworthy, use that in searchQuery instead of a guessed full address.
 - ⚠️ CRITICAL RULE: If streetNumber AND streetName are both null/empty, you MUST use businessName or landmark as the primary identifier
   * In this case, set type="landmark" and populate businessName field
   * Do NOT use partial address type when there's a clear business name
@@ -163,6 +187,14 @@ Examples:
 - "I need a coffee shop on my way to the airport" → addCoffeeShop: true, coffeeShopPreference: "near_origin" (time-sensitive, grab early)
 - "Find me coffee on the drive from Boston to NYC" → addCoffeeShop: true, coffeeShopPreference: "midpoint" (long drive, natural break)
 - "Get coffee after my meeting, before heading home" → addCoffeeShop: true, coffeeShopPreference: "near_origin"
+Via / Pass-Through Waypoint Guidelines:
+- If the user says "via X", "through X", "take X", "use X", or "go over X"
+  for an intermediate location, set "via": true for that stop.
+- Common via examples: bridges, tunnels, highways, specific roads
+  (e.g., "via I-95", "through the Lincoln Tunnel", "take the GW Bridge").
+- The FIRST stop (origin) and LAST stop (final destination) must NEVER be via.
+  Only intermediate stops can be via.
+- Default to via: false if unsure.
 
 If you cannot understand the audio or no locations are mentioned, return:
 {"stops": [], "commandType": "error", "error": "Could not extract locations from audio"}`;
@@ -201,6 +233,10 @@ If you cannot understand the audio or no locations are mentioned, return:
       }
       if (!result.insertPosition) {
         result.insertPosition = { type: 'append', referenceIndex: null, referenceIndex2: null };
+      }
+      if (result.needsCurrentLocation === undefined) {
+        // Default: need current location if new_route with no explicit origin
+        result.needsCurrentLocation = result.commandType === 'new_route';
       }
 
       return result;

@@ -11,6 +11,13 @@ import AddressConfirmation from './components/AddressConfirmation';
 import { calculateDistance, searchCoffeeShops } from './services/coffeeShopService.js';
 import { getCurrentPosition, watchUserPosition, clearWatch } from './services/geolocationService.js';
 import { resolvePlacement, interpolateRoutePoint, bestInsertionIndex } from './services/coffeeShopPlacement.js';
+import LoginScreen from './components/LoginScreen';
+import UserProfile from './components/UserProfile';
+import QuickStartPanel from './components/QuickStartPanel';
+import RecentPlacesList from './components/RecentPlacesList';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { HistoryProvider, useHistory } from './contexts/HistoryContext';
+import { RecentPlacesProvider, useRecentPlaces } from './contexts/RecentPlacesContext';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
@@ -95,6 +102,38 @@ const deriveCoffeeSearchHints = (transcript, preference) => {
 };
 
 function App() {
+function getConfirmationStopIndexes(stops = [], preferredIndexes = []) {
+  if (Array.isArray(preferredIndexes) && preferredIndexes.length > 0) {
+    const valid = preferredIndexes
+      .map((index) => Number(index))
+      .filter((index) => Number.isInteger(index) && index >= 0 && index < stops.length);
+    if (valid.length > 0) {
+      return [...new Set(valid)];
+    }
+  }
+
+  const needsConfirmation = stops
+    .map((stop, index) => (stop?.needsConfirmation ? index : -1))
+    .filter((index) => index >= 0);
+  if (needsConfirmation.length > 0) {
+    return needsConfirmation;
+  }
+
+  const lowConfidence = stops
+    .map((stop, index) => (typeof stop?.confidence === 'number' && stop.confidence < 0.9 ? index : -1))
+    .filter((index) => index >= 0);
+  if (lowConfidence.length > 0) {
+    return lowConfidence;
+  }
+
+  return stops.map((_, index) => index);
+}
+
+function AppContent() {
+  const { isAuthenticated, currentUser, loading: authLoading } = useAuth();
+  const { refreshHistory, refreshRecentDestinations } = useHistory();
+  const { addPlacesFromRoute } = useRecentPlaces();
+  const [showLoginScreen, setShowLoginScreen] = useState(true);
   const [routeData, setRouteData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -116,15 +155,45 @@ function App() {
   const [confirmationData, setConfirmationData] = useState(null);
   const [statusMessage, setStatusMessage] = useState(null);
   const locationWatchIdRef = useRef(null);
+  const [transcript, setTranscript] = useState(null);
 
   useEffect(() => {
-    // Load last route
-    fetch('/api/last-route')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.route) setRouteData(data.route);
+    const maskSecret = (value) => {
+      if (!value) return 'missing';
+      const str = String(value);
+      if (str.length <= 8) return `len=${str.length}`;
+      return `${str.slice(0, 6)}...${str.slice(-4)} (len=${str.length})`;
+    };
+
+    console.log('=== Frontend API Config ===');
+    console.log('VITE_API_URL:', API_BASE_URL);
+    console.log('VITE_GOOGLE_MAPS_API_KEY:', maskSecret(GOOGLE_MAPS_API_KEY));
+    console.log('=== End Frontend API Config ===');
+
+    // Load last route + transcript.
+    if (isAuthenticated) {
+      fetch(`${API_BASE_URL}/history?limit=1`, {
+        credentials: 'include'
       })
-      .catch(() => {});
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && data.history?.[0]) {
+            setRouteData(data.history[0].route || null);
+            if (data.history[0].transcript) {
+              setTranscript(data.history[0].transcript);
+            }
+          }
+        })
+        .catch(() => {});
+    } else {
+      fetch(`${API_BASE_URL}/last-route`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.route) setRouteData(data.route);
+          if (data.transcript) setTranscript(data.transcript);
+        })
+        .catch(() => {});
+    }
 
     // Get user's current location
     if (navigator.geolocation) {
@@ -143,7 +212,7 @@ function App() {
         }
       );
     }
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (!statusMessage) return;
@@ -212,6 +281,36 @@ function App() {
         limit: 8,
         sortBy: 'score',
         ...(searchHints.keyword ? { keyword: searchHints.keyword } : {})
+  const openConfirmationDialog = useCallback((payload, fallback = {}) => {
+    const stops = payload?.stops || fallback.stops || [];
+    const confirmationStopIndexes = getConfirmationStopIndexes(stops, payload?.confirmationStopIndexes);
+
+    setConfirmationData({
+      stops,
+      stopIndexes: confirmationStopIndexes,
+      transcript: payload?.transcript ?? fallback.transcript ?? null,
+      commandType: payload?.commandType || fallback.commandType || 'new_route'
+    });
+
+    if (payload?.message) {
+      setStatusMessage(payload.message);
+      setTimeout(() => setStatusMessage(null), 4000);
+    }
+  }, []);
+
+  const handleVoiceResult = useCallback((data) => {
+    console.log('\n========== FRONTEND: handleVoiceResult ==========');
+    console.log('📝 Transcript:', data.transcript);
+    console.log('🎯 Command Type:', data.commandType);
+    console.log('📍 Route stops:', data.route?.stops?.length || 0);
+
+    // Log current route BEFORE update
+    console.log('\n🔍 BEFORE UPDATE:');
+    console.log('  Current routeData:', routeData);
+    if (routeData?.stops) {
+      console.log('  Current stops count:', routeData.stops.length);
+      routeData.stops.forEach((stop, i) => {
+        console.log(`    [${i}] ${stop.name} | original: "${stop.original}" | lat: ${stop.lat}, lng: ${stop.lng}`);
       });
 
       if (!result.recommendations || result.recommendations.length === 0) {
@@ -276,6 +375,18 @@ function App() {
         limit: 5,
         sortBy: 'distance',
         ...(searchHints.keyword ? { keyword: searchHints.keyword } : {})
+    // Save transcript for display
+    if (data.transcript) {
+      setTranscript(data.transcript);
+    }
+
+    // Check if confirmation is needed
+    if (data.needsConfirmation) {
+      console.log('⚠️ Confirmation required - showing targeted stops');
+      openConfirmationDialog(data, {
+        stops: data.stops,
+        transcript: data.transcript,
+        commandType: data.commandType
       });
 
       if (!result.recommendations || result.recommendations.length === 0) {
@@ -379,6 +490,75 @@ function App() {
       locationWatchIdRef.current = null;
     }
   }, []);
+    // Add places from route to recent places
+    addPlacesFromRoute(data.route);
+
+    // Set status message based on command type
+    if (data.commandType === 'add_stop' || data.commandType === 'insert_stop') {
+      setStatusMessage('✓ Stop added to route');
+    } else if (data.commandType === 'replace_stop') {
+      setStatusMessage('✓ Stop replaced in route');
+    } else if (data.commandType === 'new_route') {
+      setStatusMessage('✓ New route created');
+    }
+
+    // Clear status message after 3 seconds
+    setTimeout(() => setStatusMessage(null), 3000);
+
+    // Refresh history after voice result
+    if (isAuthenticated) {
+      refreshHistory();
+      refreshRecentDestinations();
+    }
+  }, [openConfirmationDialog, routeData, isAuthenticated, refreshHistory, refreshRecentDestinations, addPlacesFromRoute]);
+
+  const handleSelectDestination = useCallback(async (destination) => {
+    // Create route from current location to destination
+    if (!userLocation) {
+      setError('Unable to get your location. Please enable location services.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const stops = [
+        {
+          name: 'Your Location',
+          searchQuery: 'Your Location',
+          lat: userLocation.lat,
+          lng: userLocation.lng,
+          formattedAddress: `${userLocation.lat}, ${userLocation.lng}`
+        },
+        destination
+      ];
+
+      const response = await fetch(`${API_BASE_URL}/route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ stops })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setRouteData(result.route);
+        addPlacesFromRoute(result.route);
+        if (isAuthenticated) {
+          refreshHistory();
+          refreshRecentDestinations();
+        }
+      } else {
+        setError(result.error || 'Failed to calculate route');
+      }
+    } catch (err) {
+      setError('Failed to create route to destination');
+    } finally {
+      setLoading(false);
+    }
+  }, [userLocation, isAuthenticated, refreshHistory, refreshRecentDestinations, addPlacesFromRoute]);
 
   // Dismiss nearby results without clearing detour
   const handleDismissNearby = useCallback(() => {
@@ -425,9 +605,23 @@ function App() {
     setError(null);
     try {
       const response = await fetch(`${API_BASE_URL}/route`, {
+
+    // Update transcript to reflect confirmed/edited addresses
+    const stopNames = confirmedStops.map(
+      (s) => s.searchQuery || s.formattedAddress || s.original || s.name || 'Unknown'
+    );
+    const updatedTranscript = stopNames.length > 0 ? stopNames.join(' → ') : null;
+    if (updatedTranscript) {
+      setTranscript(updatedTranscript);
+    }
+
+    try {
+      // Call /api/route with confirmed stops and transcript
+      const response = await fetch('/api/route', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stops: confirmedStops })
+        credentials: 'include',
+        body: JSON.stringify({ stops: confirmedStops, transcript: updatedTranscript })
       });
       const data = await response.json();
 
@@ -440,12 +634,24 @@ function App() {
         setStatusMessage('Route updated');
         setConfirmationData(null);
       }
+      if (data.needsConfirmation) {
+        openConfirmationDialog(data, {
+          stops: data.stops || confirmedStops,
+          transcript: data.transcript || null,
+          commandType: data.commandType || 'new_route'
+        });
+        return;
+      }
+
+      setRouteData(data.route);
+      setStatusMessage('✓ Route created with confirmed addresses');
+      setTimeout(() => setStatusMessage(null), 3000);
     } catch (err) {
       setError(err.message || 'Failed to confirm addresses');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [openConfirmationDialog]);
 
   const handleCancelConfirmation = useCallback(() => {
     setConfirmationData(null);
@@ -469,6 +675,8 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stops: newStops })
+        credentials: 'include',
+        body: JSON.stringify({ stops: updatedStops })
       });
       const data = await response.json();
 
@@ -480,12 +688,24 @@ function App() {
         setRouteData(data.route);
         setStatusMessage('Stop removed');
       }
+      if (data.needsConfirmation) {
+        openConfirmationDialog(data, {
+          stops: data.stops || updatedStops,
+          transcript: null,
+          commandType: data.commandType || 'new_route'
+        });
+        return;
+      }
+
+      setRouteData(data.route);
+      setStatusMessage('✓ Stop removed and route updated');
+      setTimeout(() => setStatusMessage(null), 3000);
     } catch (err) {
       setError(err.message || 'Failed to remove stop');
     } finally {
       setLoading(false);
     }
-  }, [routeData]);
+  }, [openConfirmationDialog, routeData]);
 
   const handleEditStop = useCallback(async (index, newValue) => {
     if (!routeData?.stops || !newValue) return;
@@ -522,6 +742,20 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stops: newStops })
+      // Create new stops array with updated address
+      const updatedStops = routeData.stops.map((stop, index) => {
+        if (index === stopIndex) {
+          // Replace with new search query and remove old coordinates
+          // so the server re-geocodes the new address
+          const { lat, lng, formattedAddress, placeId, ...rest } = stop;
+          return {
+            ...rest,
+            name: newAddress,
+            searchQuery: newAddress,
+            original: newAddress
+          };
+        }
+        return stop;
       });
       const data = await response.json();
 
@@ -612,6 +846,8 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stops: stopQueries })
+        credentials: 'include',
+        body: JSON.stringify({ stops: updatedStops })
       });
       const data = await response.json();
 
@@ -629,13 +865,34 @@ function App() {
         setRouteData(data.route);
         setStatusMessage(`${shop.name} added to your route.`);
       }
+      if (data.needsConfirmation) {
+        openConfirmationDialog(data, {
+          stops: data.stops || updatedStops,
+          transcript: null,
+          commandType: data.commandType || 'new_route'
+        });
+        return;
+      }
+
+      setRouteData(data.route);
+      setStatusMessage('✓ Stop updated and route recalculated');
+      setTimeout(() => setStatusMessage(null), 3000);
     } catch (err) {
       console.error('Failed to add coffee shop:', err);
       setError(err.message || 'Failed to add stop');
     } finally {
       setLoading(false);
     }
-  }, [routeData]);
+  }, [openConfirmationDialog, routeData]);
+
+  // Show login screen if not authenticated and not in guest mode
+  if (!isAuthenticated && showLoginScreen && !authLoading) {
+    return <LoginScreen onContinueAsGuest={() => setShowLoginScreen(false)} />;
+  }
+
+  if (authLoading) {
+    return <div className="app-loading">Loading...</div>;
+  }
 
   const handleConfirmPendingCoffeeShop = useCallback(() => {
     if (!pendingCoffeeShop) return;
@@ -710,6 +967,7 @@ function App() {
       {confirmationData && (
         <AddressConfirmation
           stops={confirmationData.stops}
+          confirmationStopIndexes={confirmationData.stopIndexes}
           transcript={confirmationData.transcript}
           onConfirm={handleConfirmAddresses}
           onCancel={handleCancelConfirmation}
@@ -717,19 +975,40 @@ function App() {
       )}
 
       <header className="app-header">
-        <h1>Voice Navigation Planner</h1>
-        <p>Speak your route and see it on the map</p>
+        <div className="header-content">
+          <div className="header-left">
+            <h1>Voice Navigation Planner</h1>
+            <p>Speak your route and see it on the map</p>
+          </div>
+          <div className="header-actions">
+            <VoiceRecorder
+              onResult={handleVoiceResult}
+              onError={handleError}
+              onLoadingChange={handleLoadingChange}
+              currentRoute={routeData}
+              userLocation={userLocation}
+              compact
+            />
+            {routeData && <RouteEmailShare route={routeData} compact />}
+          </div>
+          <div className="header-right">
+            <UserProfile />
+            {isAuthenticated && (
+              <RecentPlacesList onSelectPlace={handleSelectDestination} />
+            )}
+          </div>
+        </div>
       </header>
 
       <main className="app-main">
         <div className="control-panel">
-          <VoiceRecorder
-            onResult={handleVoiceResult}
-            onError={handleError}
-            onLoadingChange={handleLoadingChange}
-            currentRoute={routeData}
-            userLocation={userLocation}
-          />
+          {!routeData && isAuthenticated && (
+            <QuickStartPanel
+              onSelectDestination={handleSelectDestination}
+            />
+          )}
+
+
 
           {statusMessage && (
             <div className="success-message" style={{
@@ -781,6 +1060,13 @@ function App() {
           )}
 
           {routeData && <RouteEmailShare route={routeData} />}
+          {transcript && (
+            <div className="transcript-box">
+              <span className="transcript-label">You said:</span>
+              <p className="transcript-text">"{transcript}"</p>
+            </div>
+          )}
+
           {routeData && (
             <RouteInfo
               route={routeData}
@@ -793,6 +1079,7 @@ function App() {
             onResult={handleVoiceResult}
             onError={handleError}
             onLoadingChange={handleLoadingChange}
+            userLocation={userLocation}
           />
         </div>
 
@@ -906,6 +1193,18 @@ function App() {
         </div>
       )}
     </div>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <HistoryProvider>
+        <RecentPlacesProvider>
+          <AppContent />
+        </RecentPlacesProvider>
+      </HistoryProvider>
+    </AuthProvider>
   );
 }
 

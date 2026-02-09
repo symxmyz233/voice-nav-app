@@ -4,7 +4,12 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import session from 'express-session';
+import { initDatabase } from './db/database.js';
 import navigationRoutes from './routes/navigation.js';
+import usersRoutes from './routes/users.js';
+import historyRoutes from './routes/history.js';
+import savedRoutesRoutes from './routes/savedRoutes.js';
 
 dotenv.config();
 
@@ -14,11 +19,40 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROUTE_CACHE_PATH = path.resolve(__dirname, '../route_cache.json');
 
+const maskSecret = (value) => {
+  if (!value) return 'missing';
+  const str = String(value);
+  if (str.length <= 8) return `len=${str.length}`;
+  return `${str.slice(0, 6)}...${str.slice(-4)} (len=${str.length})`;
+};
+
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.CLIENT_URL || ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  credentials: true
+}));
 app.use(express.json());
 
+// Session middleware
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'voice-nav-secret-change-in-production',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax'
+  }
+}));
+
+// Initialize database
+initDatabase();
+
 // Routes
+app.use('/api/users', usersRoutes);
+app.use('/api/history', historyRoutes);
+app.use('/api/saved-routes', savedRoutesRoutes);
 app.use('/api', navigationRoutes);
 
 // Health check
@@ -36,6 +70,12 @@ const clearRouteCache = (reason) => {
 };
 
 const server = app.listen(PORT, () => {
+  console.log('=== Server API Config ===');
+  console.log('API base:', `http://localhost:${PORT}/api`);
+  console.log('MAPS_ROUTING_API:', process.env.MAPS_ROUTING_API || 'directions');
+  console.log('GOOGLE_MAPS_API_KEY:', maskSecret(process.env.GOOGLE_MAPS_API_KEY));
+  console.log('GEMINI_API_KEY:', maskSecret(process.env.GEMINI_API_KEY));
+  console.log('=== End Server API Config ===');
   console.log(`Server running on http://localhost:${PORT}`);
 });
 

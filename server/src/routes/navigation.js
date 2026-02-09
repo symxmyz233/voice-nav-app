@@ -11,6 +11,8 @@ import {
   findNearbyFoodShops
 } from '../services/placeService.js';
 import { recommendCoffeeShops, formatShopForDisplay } from '../utils/coffeeShopRecommender.js';
+import { optionalAuth } from '../middleware/auth.js';
+import { saveToHistory } from '../services/historyService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,13 +29,14 @@ function sanitizeStopsForCache(stops = []) {
   });
 }
 
-async function writeRouteCache(route, source, stops = []) {
+async function writeRouteCache(route, source, stops = [], transcript = null) {
   const payload = {
     version: ROUTE_CACHE_VERSION,
     updatedAt: new Date().toISOString(),
     source,
     stops: sanitizeStopsForCache(stops),
-    route
+    route,
+    transcript: transcript || null
   };
 
   const tempPath = `${ROUTE_CACHE_PATH}.${process.pid}.${Date.now()}.tmp`;
@@ -50,7 +53,8 @@ function normalizeCachePayload(raw) {
       updatedAt: raw.updatedAt || null,
       source: raw.source || 'unknown',
       stops: Array.isArray(raw.stops) ? raw.stops : [],
-      route: raw.route
+      route: raw.route,
+      transcript: raw.transcript || null
     };
   }
 
@@ -59,7 +63,8 @@ function normalizeCachePayload(raw) {
     updatedAt: null,
     source: 'legacy',
     stops: [],
-    route: raw || null
+    route: raw || null,
+    transcript: null
   };
 }
 
@@ -71,6 +76,78 @@ async function readRouteCache() {
     if (error?.code === 'ENOENT') return null;
     throw error;
   }
+}
+
+function normalizeLocationHint(value) {
+  if (!value || typeof value !== 'object') return null;
+
+  const lat = Number(value.lat);
+  const lng = Number(value.lng);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return null;
+  }
+
+  return { lat, lng };
+}
+
+function normalizeStopsForConfirmation(stops = []) {
+  return stops.map((stop) => {
+    if (typeof stop === 'string') {
+      return {
+        name: stop,
+        original: stop,
+        searchQuery: stop,
+        confidence: 1
+      };
+    }
+
+    const fallbackName = stop?.name || stop?.original || stop?.searchQuery || 'Unknown stop';
+    return {
+      ...stop,
+      name: fallbackName,
+      original: stop?.original || fallbackName,
+      searchQuery: stop?.searchQuery || stop?.original || fallbackName,
+      confidence: typeof stop?.confidence === 'number' ? stop.confidence : 1
+    };
+  });
+}
+
+function sanitizeConfirmationStopIndexes(indexes, stopCount) {
+  if (!Array.isArray(indexes)) return [];
+
+  const deduped = [];
+  const seen = new Set();
+
+  indexes.forEach((rawIndex) => {
+    const index = Number(rawIndex);
+    if (!Number.isInteger(index)) return;
+    if (index < 0 || index >= stopCount) return;
+    if (seen.has(index)) return;
+    seen.add(index);
+    deduped.push(index);
+  });
+
+  return deduped;
+}
+
+function findConfirmationStopIndexes(stops = [], confidenceThreshold = null) {
+  const indexes = [];
+
+  stops.forEach((stop, index) => {
+    const needsConfirmation = Boolean(stop?.needsConfirmation);
+    const lowConfidence = (
+      typeof confidenceThreshold === 'number' &&
+      typeof stop?.confidence === 'number' &&
+      stop.confidence < confidenceThreshold
+    );
+
+    if (needsConfirmation || lowConfidence) {
+      indexes.push(index);
+    }
+  });
+
+  return indexes;
 }
 
 // Configure multer for audio file uploads
@@ -86,7 +163,7 @@ const upload = multer({
  * POST /api/process-voice
  * Process voice input and return navigation route
  */
-router.post('/process-voice', upload.single('audio'), async (req, res) => {
+router.post('/process-voice', optionalAuth, upload.single('audio'), async (req, res) => {
   console.log('=== /api/process-voice called ===');
   try {
     if (!req.file) {
@@ -120,11 +197,17 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
     let userLocation = null;
     if (req.body.userLocation) {
       try {
-        userLocation = JSON.parse(req.body.userLocation);
-        console.log('✅ User location provided:', {
-          lat: userLocation.lat,
-          lng: userLocation.lng
-        });
+        const parsedLocation = JSON.parse(req.body.userLocation);
+        userLocation = normalizeLocationHint(parsedLocation);
+
+        if (userLocation) {
+          console.log('✅ User location provided:', {
+            lat: userLocation.lat,
+            lng: userLocation.lng
+          });
+        } else {
+          console.log('⚠️ User location provided but invalid format:', req.body.userLocation);
+        }
       } catch (e) {
         console.log('❌ Failed to parse userLocation:', e.message);
       }
@@ -202,8 +285,39 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
     const commandType = geminiResult.commandType || 'new_route';
 
     if (commandType === 'new_route') {
-      // New route - use stops as-is
       finalStops = geminiResult.stops;
+
+      // Prepend current location when user didn't specify a starting point
+      // (e.g., "Go to X", "Go to X with a stop at Y")
+      if (geminiResult.needsCurrentLocation) {
+        if (userLocation) {
+          const currentLocationStop = {
+            original: 'Current Location',
+            type: 'current_location',
+            parsed: {
+              streetNumber: null,
+              streetName: null,
+              city: null,
+              state: null,
+              country: null,
+              postalCode: null,
+              landmark: null,
+              businessName: null
+            },
+            searchQuery: `${userLocation.lat},${userLocation.lng}`,
+            confidence: 1.0,
+            lat: userLocation.lat,
+            lng: userLocation.lng
+          };
+          finalStops = [currentLocationStop, ...finalStops];
+          console.log('needsCurrentLocation=true — prepended current location as origin');
+        } else {
+          return res.status(400).json({
+            error: 'This command requires location access. Please enable location services or specify a starting point (e.g. "Navigate from A to B").'
+          });
+        }
+      }
+
       console.log('Creating new route with', finalStops.length, 'stops');
     } else if (commandType === 'add_stop' || commandType === 'insert_stop') {
       // Modify existing route
@@ -374,6 +488,10 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
       }
     }
 
+    // Origin and destination can never be via
+    if (finalStops.length > 0) finalStops[0].via = false;
+    if (finalStops.length > 1) finalStops[finalStops.length - 1].via = false;
+
     console.log('Final stops array:', finalStops.map(s => s.original || s.searchQuery));
 
     // Step 2.5: Check confidence levels - if any stop has confidence < 0.9, ask for confirmation
@@ -381,6 +499,7 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
     const lowConfidenceStops = finalStops.filter(stop =>
       stop.confidence !== undefined && stop.confidence < CONFIDENCE_THRESHOLD
     );
+    const lowConfidenceStopIndexes = findConfirmationStopIndexes(finalStops, CONFIDENCE_THRESHOLD);
 
     if (lowConfidenceStops.length > 0) {
       console.log(`⚠️ Found ${lowConfidenceStops.length} stops with low confidence - requesting user confirmation`);
@@ -390,6 +509,7 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
         transcript: geminiResult.transcript || null,
         commandType: geminiResult.commandType || 'new_route',
         stops: finalStops,
+        confirmationStopIndexes: lowConfidenceStopIndexes,
         lowConfidenceStops: lowConfidenceStops.map(s => s.original),
         message: 'Please confirm the detected addresses before proceeding'
       });
@@ -402,7 +522,7 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
     let geocodingContext = null;
 
     // Priority 1: User's current location (most accurate for new routes)
-    if (userLocation && userLocation.lat && userLocation.lng) {
+    if (userLocation) {
       geocodingContext = {
         userLocation: { lat: userLocation.lat, lng: userLocation.lng }
       };
@@ -412,10 +532,14 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
     // Priority 2: Route context for add_stop/insert_stop commands
     if ((commandType === 'add_stop' || commandType === 'insert_stop') && currentRoute?.stops?.length > 0) {
       // Calculate midpoint of current route for better location bias
-      const existingStops = currentRoute.stops.filter(s => s.lat && s.lng);
+      const existingStops = currentRoute.stops.filter((s) => {
+        const lat = Number(s?.lat);
+        const lng = Number(s?.lng);
+        return Number.isFinite(lat) && Number.isFinite(lng);
+      });
       if (existingStops.length > 0) {
-        const avgLat = existingStops.reduce((sum, s) => sum + s.lat, 0) / existingStops.length;
-        const avgLng = existingStops.reduce((sum, s) => sum + s.lng, 0) / existingStops.length;
+        const avgLat = existingStops.reduce((sum, s) => sum + Number(s.lat), 0) / existingStops.length;
+        const avgLng = existingStops.reduce((sum, s) => sum + Number(s.lng), 0) / existingStops.length;
 
         if (!geocodingContext) {
           geocodingContext = {};
@@ -426,7 +550,32 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
       }
     }
 
-    const routeData = await getMultiStopRoute(finalStops, geocodingContext);
+    let routeData;
+    try {
+      routeData = await getMultiStopRoute(finalStops, geocodingContext);
+    } catch (routeError) {
+      if (routeError?.code === 'ADDRESS_CONFIRMATION_REQUIRED') {
+        console.warn('Address confirmation required before route generation');
+        const confirmationStops = normalizeStopsForConfirmation(routeError.confirmationStops || finalStops);
+        const confirmationStopIndexes = sanitizeConfirmationStopIndexes(
+          routeError.confirmationStopIndexes,
+          confirmationStops.length
+        );
+        const fallbackIndexes = findConfirmationStopIndexes(confirmationStops);
+        return res.json({
+          success: true,
+          needsConfirmation: true,
+          transcript: geminiResult.transcript || null,
+          commandType: geminiResult.commandType || 'new_route',
+          stops: confirmationStops,
+          confirmationStopIndexes: confirmationStopIndexes.length > 0
+            ? confirmationStopIndexes
+            : (fallbackIndexes.length > 0 ? fallbackIndexes : confirmationStops.map((_, index) => index)),
+          message: routeError.confirmationReason || 'Please confirm the ambiguous address before continuing'
+        });
+      }
+      throw routeError;
+    }
 
     console.log('\n========== ROUTE CALCULATION COMPLETE ==========');
     console.log('📍 Final route has', routeData.stops?.length || 0, 'stops:');
@@ -456,7 +605,7 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
     };
 
     try {
-      const cacheMeta = await writeRouteCache(routeData, 'process-voice', geminiResult.stops);
+      const cacheMeta = await writeRouteCache(routeData, 'process-voice', geminiResult.stops, geminiResult.transcript);
       result.cache = {
         version: cacheMeta.version,
         updatedAt: cacheMeta.updatedAt,
@@ -465,6 +614,23 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
       console.log('Cached route to', ROUTE_CACHE_PATH);
     } catch (cacheError) {
       console.error('Failed to cache route:', cacheError);
+    }
+
+    // Save to history if user is authenticated
+    if (req.userId) {
+      try {
+        await saveToHistory(
+          req.userId,
+          geminiResult.commandType || 'new_route',
+          geminiResult.transcript,
+          geminiResult.stops,
+          routeData
+        );
+        console.log('Saved route to history for user', req.userId);
+      } catch (historyError) {
+        console.error('Failed to save to history:', historyError);
+        // Don't fail the request if history save fails
+      }
     }
 
     res.json(result);
@@ -477,13 +643,52 @@ router.post('/process-voice', upload.single('audio'), async (req, res) => {
 });
 
 /**
+ * POST /api/reconfirm-stop
+ * Re-capture a single stop via voice during address confirmation flow
+ */
+router.post('/reconfirm-stop', upload.single('audio'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No audio file provided' });
+    }
+
+    const geminiResult = await extractStopsFromAudio(
+      req.file.buffer,
+      req.file.mimetype,
+      null
+    );
+
+    if (geminiResult.error || !Array.isArray(geminiResult.stops) || geminiResult.stops.length === 0) {
+      return res.status(400).json({
+        error: geminiResult.error || 'No location found in confirmation audio'
+      });
+    }
+
+    if (geminiResult.stops.length > 1) {
+      console.warn(`⚠️ Reconfirm-stop extracted ${geminiResult.stops.length} stops. Using the first one only.`);
+    }
+
+    return res.json({
+      success: true,
+      transcript: geminiResult.transcript || null,
+      stop: geminiResult.stops[0]
+    });
+  } catch (error) {
+    console.error('Error reconfirming stop from voice:', error);
+    return res.status(500).json({
+      error: error.message || 'Failed to reconfirm stop from voice'
+    });
+  }
+});
+
+/**
  * POST /api/route
  * Get route for manually specified stops
  */
-router.post('/route', async (req, res) => {
+router.post('/route', optionalAuth, async (req, res) => {
   console.log('\n========== /api/route CALLED ==========');
   try {
-    const { stops } = req.body;
+    const { stops, transcript } = req.body;
 
     console.log('📍 Received stops:', stops.length);
     stops.forEach((stop, i) => {
@@ -501,13 +706,36 @@ router.post('/route', async (req, res) => {
     }
 
     console.log('🚗 Calculating route...');
-    const routeData = await getMultiStopRoute(stops);
+    let routeData;
+    try {
+      routeData = await getMultiStopRoute(stops);
+    } catch (routeError) {
+      if (routeError?.code === 'ADDRESS_CONFIRMATION_REQUIRED') {
+        console.warn('Address confirmation required before route generation');
+        const confirmationStops = normalizeStopsForConfirmation(routeError.confirmationStops || stops);
+        const confirmationStopIndexes = sanitizeConfirmationStopIndexes(
+          routeError.confirmationStopIndexes,
+          confirmationStops.length
+        );
+        const fallbackIndexes = findConfirmationStopIndexes(confirmationStops);
+        return res.json({
+          success: true,
+          needsConfirmation: true,
+          stops: confirmationStops,
+          confirmationStopIndexes: confirmationStopIndexes.length > 0
+            ? confirmationStopIndexes
+            : (fallbackIndexes.length > 0 ? fallbackIndexes : confirmationStops.map((_, index) => index)),
+          message: routeError.confirmationReason || 'Please confirm the ambiguous address before continuing'
+        });
+      }
+      throw routeError;
+    }
     console.log('✅ Route calculated successfully');
     console.log('======================================\n');
     let cache = null;
 
     try {
-      const cacheMeta = await writeRouteCache(routeData, 'manual-route', stops);
+      const cacheMeta = await writeRouteCache(routeData, 'manual-route', stops, transcript);
       cache = {
         version: cacheMeta.version,
         updatedAt: cacheMeta.updatedAt,
@@ -516,6 +744,23 @@ router.post('/route', async (req, res) => {
       console.log('Cached route to', ROUTE_CACHE_PATH);
     } catch (cacheError) {
       console.error('Failed to cache route:', cacheError);
+    }
+
+    // Save to history if user is authenticated
+    if (req.userId) {
+      try {
+        await saveToHistory(
+          req.userId,
+          'modify_route',
+          null,
+          stops,
+          routeData
+        );
+        console.log('Saved manual route to history for user', req.userId);
+      } catch (historyError) {
+        console.error('Failed to save to history:', historyError);
+        // Don't fail the request if history save fails
+      }
     }
 
     res.json({
@@ -610,6 +855,7 @@ router.get('/last-route', async (req, res) => {
     res.json({
       success: true,
       route: cache.route,
+      transcript: cache.transcript || null,
       cache: {
         version: cache.version,
         updatedAt: cache.updatedAt,

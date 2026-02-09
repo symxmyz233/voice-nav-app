@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-function VoiceBufferList({ onResult, onError, onLoadingChange }) {
+function VoiceBufferList({ onResult, onError, onLoadingChange, userLocation = null }) {
   const [buffers, setBuffers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -33,8 +33,15 @@ function VoiceBufferList({ onResult, onError, onLoadingChange }) {
       formData.append('audio', audioBlob, filename);
       formData.append('from_buffer', 'true');
 
+      const lat = Number(userLocation?.lat);
+      const lng = Number(userLocation?.lng);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        formData.append('userLocation', JSON.stringify({ lat, lng }));
+      }
+
       const response = await fetch('/api/process-voice', {
         method: 'POST',
+        credentials: 'include',
         body: formData,
       });
 

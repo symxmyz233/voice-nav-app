@@ -1,21 +1,51 @@
 import { useState, useRef, useCallback } from 'react';
 
-function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null, userLocation = null }) {
+function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null, userLocation = null, compact = false }) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
 
+  const resolveUserLocationHint = useCallback(async () => {
+    const lat = Number(userLocation?.lat);
+    const lng = Number(userLocation?.lng);
+
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return { lat, lng };
+    }
+
+    if (!navigator.geolocation) {
+      return null;
+    }
+
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => resolve({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        }),
+        () => resolve(null),
+        {
+          enableHighAccuracy: false,
+          timeout: 4000,
+          maximumAge: 60_000
+        }
+      );
+    });
+  }, [userLocation]);
+
   const sendAudioToBackend = useCallback(async (audioBlob) => {
     setIsProcessing(true);
     onLoadingChange(true);
+
+    const locationHint = await resolveUserLocationHint();
 
     console.log('🎤 Sending audio to backend with context:', {
       hasCurrentRoute: !!currentRoute,
       stopsCount: currentRoute?.stops?.length || 0,
       stopNames: currentRoute?.stops?.map(s => s.name || s.address).join(' → ') || 'none',
-      hasUserLocation: !!userLocation,
-      userLocation: userLocation ? `${userLocation.lat}, ${userLocation.lng}` : 'none'
+      hasUserLocation: !!locationHint,
+      userLocation: locationHint ? `${locationHint.lat}, ${locationHint.lng}` : 'none'
     });
 
     try {
@@ -31,13 +61,14 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
       }
 
       // Include user location if available
-      if (userLocation) {
-        formData.append('userLocation', JSON.stringify(userLocation));
-        console.log('✅ User location added to FormData:', userLocation);
+      if (locationHint) {
+        formData.append('userLocation', JSON.stringify(locationHint));
+        console.log('✅ User location added to FormData:', locationHint);
       }
 
       const response = await fetch('/api/process-voice', {
         method: 'POST',
+        credentials: 'include',
         body: formData
       });
 
@@ -67,7 +98,7 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
       setIsProcessing(false);
       onLoadingChange(false);
     }
-  }, [currentRoute, userLocation, onLoadingChange, onResult, onError]);
+  }, [currentRoute, onLoadingChange, onResult, onError, resolveUserLocationHint]);
 
   const startRecording = useCallback(async () => {
     try {
@@ -120,8 +151,8 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
   };
 
   return (
-    <div className="voice-recorder">
-      <h2>Voice Input</h2>
+    <div className={`voice-recorder${compact ? ' voice-recorder--compact' : ''}`}>
+      {!compact && <h2>Voice Input</h2>}
 
       <button
         className={`record-button ${isRecording ? 'recording' : ''}`}
@@ -143,19 +174,24 @@ function VoiceRecorder({ onResult, onError, onLoadingChange, currentRoute = null
         </svg>
       </button>
 
-      <p className={`record-status ${isRecording ? 'recording' : ''}`}>
-        {isProcessing
-          ? 'Processing...'
-          : isRecording
-          ? 'Recording... Click to stop'
-          : 'Click to start recording'}
-      </p>
+      {compact && <p className="compact-hint">Voice Input</p>}
+      {!compact && (
+        <p className={`record-status ${isRecording ? 'recording' : ''}`}>
+          {isProcessing
+            ? 'Processing...'
+            : isRecording
+            ? 'Click to stop'
+            : 'Tap to record'}
+        </p>
+      )}
 
-      <p style={{ fontSize: '0.8rem', color: '#9ca3af', marginTop: '10px' }}>
-        {currentRoute
-          ? 'Examples: "Add a stop at Times Square" or "Add Starbucks between stop 1 and 2"'
-          : 'Examples: "Navigate from San Francisco to Los Angeles" or "Find nearest coffee shop"'}
-      </p>
+      {!compact && (
+        <p style={{ fontSize: '0.8rem', color: '#9ca3af', marginTop: '10px' }}>
+          {currentRoute
+            ? 'Examples: "Add a stop at Times Square" or "Add Starbucks between stop 1 and 2"'
+            : 'Examples: "Go to Times Square" or "Navigate from San Francisco to Los Angeles"'}
+        </p>
+      )}
     </div>
   );
 }

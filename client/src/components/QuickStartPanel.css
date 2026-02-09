@@ -1,0 +1,119 @@
+.quick-start-panel {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.quick-start-loading,
+.quick-start-empty {
+  text-align: center;
+  padding: 30px 20px;
+  color: #666;
+}
+
+.quick-start-empty p {
+  margin: 8px 0;
+  font-size: 14px;
+}
+
+.quick-start-section {
+  margin-bottom: 24px;
+}
+
+.quick-start-section:last-child {
+  margin-bottom: 0;
+}
+
+.quick-start-section h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 8px 0;
+}
+
+.quick-start-hint {
+  font-size: 13px;
+  color: #666;
+  margin: 0 0 12px 0;
+}
+
+.destination-list,
+.route-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.destination-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border: 2px solid #e9ecef;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  font-family: inherit;
+}
+
+.destination-button:hover {
+  background: #e7f3ff;
+  border-color: #667eea;
+}
+
+.destination-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.destination-arrow {
+  font-size: 18px;
+  color: #667eea;
+  margin-left: 8px;
+}
+
+.route-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border: 2px solid #dee2e6;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  font-family: inherit;
+}
+
+.route-button:hover {
+  background: linear-gradient(135deg, #e7f3ff 0%, #d0e7ff 100%);
+  border-color: #667eea;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+}
+
+.route-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 6px;
+}
+
+.route-preview {
+  font-size: 13px;
+  color: #666;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
