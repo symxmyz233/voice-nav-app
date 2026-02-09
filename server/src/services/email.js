@@ -88,13 +88,64 @@ function getRouteStops(route) {
   return labels;
 }
 
+function decodePolyline(encoded) {
+  const points = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  while (index < encoded.length) {
+    for (const field of ['lat', 'lng']) {
+      let shift = 0;
+      let result = 0;
+      let byte;
+      do {
+        byte = encoded.charCodeAt(index++) - 63;
+        result |= (byte & 0x1f) << shift;
+        shift += 5;
+      } while (byte >= 0x20);
+      const delta = result & 1 ? ~(result >> 1) : result >> 1;
+      if (field === 'lat') lat += delta;
+      else lng += delta;
+    }
+    points.push({ lat: lat / 1e5, lng: lng / 1e5 });
+  }
+  return points;
+}
+
+function findPolylinePointNear(decodedPoints, target) {
+  let bestDist = Infinity;
+  let bestPoint = null;
+  for (const pt of decodedPoints) {
+    const dlat = pt.lat - target.lat;
+    const dlng = pt.lng - target.lng;
+    const dist = dlat * dlat + dlng * dlng;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestPoint = pt;
+    }
+  }
+  return bestPoint ? `${bestPoint.lat},${bestPoint.lng}` : `${target.lat},${target.lng}`;
+}
+
 export function buildGoogleMapsDirectionsLink(route) {
   const stopLabels = getRouteStops(route);
   const origin = stopLabels[0];
   const destination = stopLabels[stopLabels.length - 1];
   const waypoints = (route.stops || []).slice(1, -1).map((stop, i) => {
     const label = stopLabels[i + 1];
-    return stop.via ? `via:${label}` : label;
+    // For via waypoints, find the nearest point on the computed route polyline.
+    // Google Maps URLs don't support "via:" semantics, and using the geocoded
+    // coordinates of a place like "George Washington Bridge" can land on the
+    // wrong side, causing multiple bridge crossings. By snapping to the
+    // overview polyline we get a coordinate that's on the actual computed path.
+    if (stop.via && Number.isFinite(stop.lat) && Number.isFinite(stop.lng)) {
+      if (route.overview_polyline) {
+        const decoded = decodePolyline(route.overview_polyline);
+        return findPolylinePointNear(decoded, { lat: stop.lat, lng: stop.lng });
+      }
+      return `${stop.lat},${stop.lng}`;
+    }
+    return label;
   });
 
   const params = new URLSearchParams({

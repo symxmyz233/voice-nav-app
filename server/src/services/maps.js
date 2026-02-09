@@ -1,4 +1,5 @@
 import { Client } from '@googlemaps/google-maps-services-js';
+import { checkAddressTextMismatch } from '../utils/addressSimilarity.js';
 
 const mapsClient = new Client({});
 
@@ -796,15 +797,42 @@ export async function geocodeLocation(stopInfo, context = {}) {
   const strategy = determineGeocodingStrategy(stopInfo);
 
   try {
+    let result;
     if (strategy === 'places_primary') {
-      return await resolvePlacesPrimaryStrategy(query, geocodingOptions, stopInfo, isStructured, context);
+      result = await resolvePlacesPrimaryStrategy(query, geocodingOptions, stopInfo, isStructured, context);
+    } else if (strategy === 'address') {
+      result = await resolveAddressStrategy(query, geocodingOptions, stopInfo, isStructured, context);
+    } else {
+      result = await resolveHybridStrategy(query, geocodingOptions, stopInfo, isStructured, context);
     }
 
-    if (strategy === 'address') {
-      return await resolveAddressStrategy(query, geocodingOptions, stopInfo, isStructured, context);
+    // Text mismatch check: compare original input against geocoded result
+    if (isStructured && stopInfo.original && result.formattedAddress) {
+      const mismatch = checkAddressTextMismatch(stopInfo.original, result.formattedAddress);
+
+      // For places_primary, also check against result.name to avoid false positives
+      // (e.g., "Starbucks" won't appear in a street address)
+      if (strategy === 'places_primary' && result.name && mismatch.hasMismatch) {
+        const nameMismatch = checkAddressTextMismatch(stopInfo.original, result.name);
+        if (!nameMismatch.hasMismatch) {
+          // Name matches well enough — don't flag
+          return result;
+        }
+      }
+
+      if (mismatch.hasMismatch) {
+        console.log(`⚠️ Address text mismatch detected: ${mismatch.reason}`);
+        if (result.needsConfirmation) {
+          result.confirmationReason += '; ' + mismatch.reason;
+        } else {
+          result.needsConfirmation = true;
+          result.blockRouting = true;
+          result.confirmationReason = mismatch.reason;
+        }
+      }
     }
 
-    return await resolveHybridStrategy(query, geocodingOptions, stopInfo, isStructured, context);
+    return result;
   } catch (error) {
     console.error('Geocoding error for query:', query, error);
     throw error;
