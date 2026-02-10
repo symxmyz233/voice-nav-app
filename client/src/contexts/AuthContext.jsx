@@ -52,8 +52,9 @@ export function AuthProvider({ children }) {
       if (data.success) {
         setCurrentUser(data.user);
         setIsAuthenticated(true);
-        // Save to localStorage for auto-fill
+        // Save to localStorage for auto-fill and login persistence
         localStorage.setItem('lastUsername', username);
+        localStorage.setItem('dismissedLogin', 'true');
         if (email) {
           localStorage.setItem('lastEmail', email);
         }
@@ -76,6 +77,7 @@ export function AuthProvider({ children }) {
 
       setCurrentUser(null);
       setIsAuthenticated(false);
+      localStorage.removeItem('dismissedLogin');
     } catch (error) {
       console.error('Logout failed:', error);
     }

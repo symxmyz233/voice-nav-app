@@ -132,7 +132,9 @@ function AppContent() {
   const { isAuthenticated, currentUser, loading: authLoading } = useAuth();
   const { refreshHistory, refreshRecentDestinations } = useHistory();
   const { addPlacesFromRoute } = useRecentPlaces();
-  const [showLoginScreen, setShowLoginScreen] = useState(true);
+  const [showLoginScreen, setShowLoginScreen] = useState(() => {
+    return localStorage.getItem('dismissedLogin') !== 'true';
+  });
   const [routeData, setRouteData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -817,7 +819,10 @@ function AppContent() {
 
   // Show login screen if not authenticated and not in guest mode
   if (!isAuthenticated && showLoginScreen && !authLoading) {
-    return <LoginScreen onContinueAsGuest={() => setShowLoginScreen(false)} />;
+    return <LoginScreen onContinueAsGuest={() => {
+      localStorage.setItem('dismissedLogin', 'true');
+      setShowLoginScreen(false);
+    }} />;
   }
 
   if (authLoading) {

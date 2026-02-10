@@ -1,5 +1,5 @@
 import { Client } from '@googlemaps/google-maps-services-js';
-import { checkAddressTextMismatch } from '../utils/addressSimilarity.js';
+import { checkAddressTextMismatch, normalizeAddressForComparison } from '../utils/addressSimilarity.js';
 
 const mapsClient = new Client({});
 
@@ -189,33 +189,34 @@ async function validateAddress(query) {
  */
 async function findPlaceByTextSearch(query, options = {}) {
   const params = {
-    query: query,
-    key: process.env.GOOGLE_MAPS_API_KEY
+    input: query,
+    inputtype: 'textquery',
+    key: process.env.GOOGLE_MAPS_API_KEY,
+    fields: ['name', 'formatted_address', 'geometry', 'place_id', 'rating', 'types']
   };
 
   // Add location bias if provided
   if (options.locationBias) {
-    params.location = `${options.locationBias.lat},${options.locationBias.lng}`;
-    params.radius = 50000; // 50km radius
+    params.locationbias = `circle:50000@${options.locationBias.lat},${options.locationBias.lng}`;
   }
 
-  console.log('\n=== 📍 PLACES TEXT SEARCH API CALL ===');
+  console.log('\n=== 📍 PLACES API CALL ===');
   console.log('Query:', query);
   console.log('Params:', JSON.stringify(params, null, 2));
 
-  const response = await mapsClient.textSearch({ params });
+  const response = await mapsClient.findPlaceFromText({ params });
 
-  console.log(`\n📊 Places Text Search Response: Found ${response.data.results?.length || 0} results`);
+  console.log(`\n📊 Places API Response: Found ${response.data.candidates?.length || 0} candidates`);
 
-  if (!response.data.results || response.data.results.length === 0) {
+  if (!response.data.candidates || response.data.candidates.length === 0) {
     console.log('❌ No places found');
     console.log('=== END PLACES API ===\n');
     throw new Error(`Could not find place: ${query}`);
   }
 
-  // Log top candidates (limit to 5)
-  response.data.results.slice(0, 5).forEach((place, idx) => {
-    console.log(`\n  Result ${idx + 1}:`);
+  // Log all candidates
+  response.data.candidates.forEach((place, idx) => {
+    console.log(`\n  Candidate ${idx + 1}:`);
     console.log(`    Name: ${place.name}`);
     console.log(`    Address: ${place.formatted_address}`);
     console.log(`    Location: ${place.geometry.location.lat}, ${place.geometry.location.lng}`);
@@ -224,8 +225,8 @@ async function findPlaceByTextSearch(query, options = {}) {
     console.log(`    Types: ${place.types?.join(', ') || 'N/A'}`);
   });
 
-  const place = response.data.results[0];
-  console.log(`\n✅ Using top result: ${place.name} - ${place.formatted_address}`);
+  const place = response.data.candidates[0];
+  console.log(`\n✅ Using top candidate: ${place.name} - ${place.formatted_address}`);
   console.log('=== END PLACES API ===\n');
 
   return {
@@ -381,6 +382,13 @@ function determineGeocodingStrategy(stopInfo) {
 
   // If it's a landmark or has a business name, prefer Places API
   if (type === 'landmark' || parsed?.landmark || parsed?.businessName) {
+    // Via waypoints are infrastructure landmarks (bridges, tunnels, highways)
+    // where the Geocoding API returns better coordinates than Places API
+    // (which tends to return nearby businesses like "GW Bridge Bus Station").
+    if (stopInfo.via) {
+      console.log(`📍 Detected via landmark - will use geocoding-only strategy`);
+      return 'geocoding_only';
+    }
     console.log(`📍 Detected landmark/business - will use Places API`);
     return 'places_primary';
   }
@@ -617,17 +625,17 @@ async function resolvePlacesPrimaryStrategy(query, geocodingOptions, stopInfo, i
     if (geocoded) {
       const distance = calculateDistance(places.lat, places.lng, geocoded.lat, geocoded.lng);
       if (distance > 1) {
-        const reason = `Places and Geocoding differ by ${distance.toFixed(2)}km`;
-        console.log(`⚠️ ${reason} - requiring confirmation`);
-        const alternatives = buildLandmarkAlternatives(places, geocoded);
-        return enrichWithStructuredMetadata({
-          ...places,
-          needsConfirmation: true,
-          blockRouting: true,
-          confirmationReason: reason,
-          hasAlternatives: alternatives.length > 1,
-          alternativeResults: alternatives
-        }, stopInfo, isStructured);
+          const reason = `Places and Geocoding differ by ${distance.toFixed(2)}km`;
+          console.log(`⚠️ ${reason} - requiring confirmation`);
+          const alternatives = buildLandmarkAlternatives(places, geocoded);
+          return enrichWithStructuredMetadata({
+            ...places,
+            needsConfirmation: true,
+            blockRouting: true,
+            confirmationReason: reason,
+            hasAlternatives: alternatives.length > 1,
+            alternativeResults: alternatives
+          }, stopInfo, isStructured);
       }
     }
 
@@ -668,18 +676,18 @@ async function resolvePlacesPrimaryStrategy(query, geocodingOptions, stopInfo, i
     }
 
     if (hasMultipleGeocodingCandidates || geocoded.distanceWarning) {
-      const reasons = [];
-      if (hasMultipleGeocodingCandidates) reasons.push('Multiple geocoding matches were found');
-      if (geocoded.distanceWarning) reasons.push('Result is far from expected location');
-      const alternatives = buildLandmarkAlternatives(null, geocoded);
-      return enrichWithStructuredMetadata({
-        ...geocoded,
-        needsConfirmation: true,
-        blockRouting: true,
-        confirmationReason: reasons.join('; '),
-        hasAlternatives: alternatives.length > 1,
-        alternativeResults: alternatives
-      }, stopInfo, isStructured);
+        const reasons = [];
+        if (hasMultipleGeocodingCandidates) reasons.push('Multiple geocoding matches were found');
+        if (geocoded.distanceWarning) reasons.push('Result is far from expected location');
+        const alternatives = buildLandmarkAlternatives(null, geocoded);
+        return enrichWithStructuredMetadata({
+          ...geocoded,
+          needsConfirmation: true,
+          blockRouting: true,
+          confirmationReason: reasons.join('; '),
+          hasAlternatives: alternatives.length > 1,
+          alternativeResults: alternatives
+        }, stopInfo, isStructured);
     }
 
     console.log('Places API failed, using Geocoding API');
@@ -790,6 +798,60 @@ async function resolveAddressStrategy(query, geocodingOptions, stopInfo, isStruc
   }
 
   throw new Error(`Both geocoding APIs failed for: "${query}"`);
+}
+
+async function resolveGeocodingOnlyStrategy(query, geocodingOptions, stopInfo, isStructured, context) {
+  const geocoded = await geocodeFallback(query, geocodingOptions);
+  if (!geocoded) {
+    throw new Error(`Geocoding API failed for: "${query}"`);
+  }
+
+  const useDistanceGuard = shouldApplyDistanceGuard(stopInfo);
+  const checked = useDistanceGuard
+    ? applyDistanceWarning(geocoded, context.nearLocation, 'Geocoding result')
+    : geocoded;
+
+  // Name-match verification: ensure the geocoded result actually contains all
+  // significant words from the user's query.  E.g. "George Washington Bridge"
+  // must not silently resolve to "Washington Bridge" (a different bridge).
+  const normalizedQuery = normalizeAddressForComparison(stopInfo.original || query);
+  const normalizedResult = normalizeAddressForComparison(checked.formattedAddress || '');
+  const queryTokens = normalizedQuery.split(/\s+/).filter(t => t.length >= 2);
+  const resultTokens = new Set(normalizedResult.split(/\s+/).filter(t => t.length >= 2));
+
+  const missingTokens = queryTokens.filter(t => !resultTokens.has(t));
+  const nameMatchFailed = missingTokens.length > 0;
+
+  if (nameMatchFailed) {
+    console.log(`⚠️ Geocoding-only name mismatch: query tokens [${queryTokens}], result tokens [${[...resultTokens]}], missing [${missingTokens}]`);
+  }
+
+  const farFromExpected = Boolean(checked.distanceWarning);
+
+  if (nameMatchFailed || farFromExpected) {
+    const notes = [];
+    if (nameMatchFailed) notes.push(`Geocoded address is missing: ${missingTokens.join(', ')}`);
+    if (farFromExpected) notes.push('Result is far from expected location');
+
+    const alternatives = (checked.allResults || []).slice(0, 3).map((r, i) => ({
+      source: i === 0 ? 'Geocoding API (Best Match)' : `Geocoding API (Alternative ${i})`,
+      lat: r.lat,
+      lng: r.lng,
+      formattedAddress: r.formattedAddress,
+      placeId: r.placeId
+    }));
+
+    return enrichWithStructuredMetadata({
+      ...checked,
+      needsConfirmation: true,
+      blockRouting: true,
+      confirmationReason: notes.join('; '),
+      hasAlternatives: alternatives.length > 1,
+      alternativeResults: alternatives
+    }, stopInfo, isStructured);
+  }
+
+  return enrichWithStructuredMetadata(checked, stopInfo, isStructured);
 }
 
 async function resolveHybridStrategy(query, geocodingOptions, stopInfo, isStructured, context) {
@@ -911,6 +973,8 @@ export async function geocodeLocation(stopInfo, context = {}) {
       result = await resolvePlacesPrimaryStrategy(query, geocodingOptions, stopInfo, isStructured, context);
     } else if (strategy === 'address') {
       result = await resolveAddressStrategy(query, geocodingOptions, stopInfo, isStructured, context);
+    } else if (strategy === 'geocoding_only') {
+      result = await resolveGeocodingOnlyStrategy(query, geocodingOptions, stopInfo, isStructured, context);
     } else {
       result = await resolveHybridStrategy(query, geocodingOptions, stopInfo, isStructured, context);
     }
@@ -1259,6 +1323,51 @@ function normalizeStopForConfirmation(stop) {
 }
 
 /**
+ * Decode an encoded polyline string into an array of {lat, lng} points.
+ */
+function decodePolylineToPoints(encoded) {
+  const points = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  while (index < encoded.length) {
+    for (const field of ['lat', 'lng']) {
+      let shift = 0;
+      let result = 0;
+      let byte;
+      do {
+        byte = encoded.charCodeAt(index++) - 63;
+        result |= (byte & 0x1f) << shift;
+        shift += 5;
+      } while (byte >= 0x20);
+      const delta = result & 1 ? ~(result >> 1) : result >> 1;
+      if (field === 'lat') lat += delta;
+      else lng += delta;
+    }
+    points.push({ lat: lat / 1e5, lng: lng / 1e5 });
+  }
+  return points;
+}
+
+/**
+ * Find the polyline point nearest to a target location.
+ */
+function findNearestPolylinePoint(decodedPoints, target) {
+  let bestDist = Infinity;
+  let bestPoint = null;
+  for (const pt of decodedPoints) {
+    const dlat = pt.lat - target.lat;
+    const dlng = pt.lng - target.lng;
+    const dist = dlat * dlat + dlng * dlng;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestPoint = pt;
+    }
+  }
+  return bestPoint;
+}
+
+/**
  * Get directions for a multi-stop route
  * @param {Array} stops - Array of structured stop objects or location strings
  * @returns {Promise<Object>} - Route data including polyline and directions
@@ -1404,6 +1513,30 @@ export async function getMultiStopRoute(stops, routeContext = null) {
       });
       const data = await getRouteViaDirectionsApi(origin, destination, waypoints);
       normalized = normalizeDirectionsResponse(data);
+    }
+
+    // Snap via-waypoint coordinates to the nearest point on the route
+    // polyline so the map pin sits on the actual bridge/tunnel/road rather
+    // than at a nearby POI (e.g. "GW Bridge Bus Station").
+    if (normalized.overview_polyline) {
+      const decodedPath = decodePolylineToPoints(normalized.overview_polyline);
+      if (decodedPath.length > 0) {
+        for (const stop of geocodedStops) {
+          if (!stop.via) continue;
+          const snapped = findNearestPolylinePoint(decodedPath, stop);
+          if (snapped) {
+            console.log(`📌 Snapped via waypoint "${stop.name}" from (${stop.lat}, ${stop.lng}) to (${snapped.lat}, ${snapped.lng})`);
+            stop.lat = snapped.lat;
+            stop.lng = snapped.lng;
+            // Use the user's original input as the display name instead of the
+            // Places API name (e.g. "George Washington Bridge" instead of
+            // "George Washington Bridge Bus Station").
+            if (stop.original) {
+              stop.name = stop.original;
+            }
+          }
+        }
+      }
     }
 
     return {
