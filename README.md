@@ -2,6 +2,39 @@
 
 A full-stack web application that converts spoken navigation requests into multi-stop driving routes. Users speak naturally — "Route from Piscataway to Manhattan via George Washington Bridge" — and the app processes the audio through Google Gemini AI, geocodes each stop, and renders the route on an interactive Google Map.
 
+## Skills & Technologies
+
+### Frontend
+- **React.js** — Component-based UI with Context API for state management (AuthContext, HistoryContext, RecentPlacesContext)
+- **Web Audio API / MediaRecorder** — Browser-based audio capture and processing
+- **Google Maps JavaScript API** — Interactive maps with polyline overlays, custom markers, and route rendering
+- **Vite** — Modern frontend build tooling
+
+### Backend
+- **Node.js / Express.js** — RESTful API server with 17+ endpoints, middleware architecture
+- **SQLite (WAL mode)** — Relational database design with concurrent read optimization (users, history, saved_routes tables)
+- **Session-based Authentication** — HTTP-only cookies, secure session management, guest mode support
+- **Nodemailer / SMTP** — Programmatic email delivery
+
+### AI / NLP
+- **Google Gemini API (2.0 Flash)** — Speech-to-text transcription, natural language understanding, structured data extraction from spoken input
+- **Prompt Engineering** — Detailed LLM prompting for intent classification (new_route, add_stop, insert_stop, replace_stop) and entity extraction
+
+### Google Cloud Platform
+- **Geocoding API, Places API, Directions API, Address Validation API** — Multi-strategy geocoding pipeline with fallback logic and confidence scoring
+
+### Algorithms & Problem Solving
+- **Multi-strategy geocoding** — Automatic strategy selection (places_primary, address, hybrid, geocoding_only) based on input type
+- **Text similarity / fuzzy matching** — Levenshtein distance, abbreviation expansion, token-level mismatch detection
+- **Weighted scoring algorithm** — Coffee shop ranking by rating, review count, distance, and open-now status
+- **Semantic route placement** — Context-aware stop insertion (origin-near, midpoint, one-third mark based on trip duration)
+
+### Software Design
+- **Full-stack architecture** — End-to-end ownership from UI to database
+- **RESTful API design** — Clean endpoint structure with auth levels (required, optional, none)
+- **Error handling & disambiguation** — Confidence thresholds, confirmation dialogs, address conflict resolution
+- **Monorepo / workspace management** — Coordinated client-server project structure
+
 ## Table of Contents
 
 - [Architecture Overview](#architecture-overview)
